@@ -1,0 +1,16 @@
+.git
+.idea
+.vscode
+.local
+**/.env
+**/.env.*
+**/.venv
+**/__pycache__
+**/.pytest_cache
+**/.ruff_cache
+**/node_modules
+**/target
+**/dist
+outputs
+client
+main.py

@@ -1,0 +1,25 @@
+# Local secrets and state
+.env
+.env.*
+!.env.example
+*.local.env
+.local/
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+# Build and IDE state
+node_modules/
+dist/
+target/
+client/src-tauri/gen/schemas/
+*.tsbuildinfo
+.idea/
+.vscode/*
+!.vscode/extensions.json
+.DS_Store
+# Private document samples and releases
+outputs/

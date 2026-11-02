@@ -1,0 +1,36 @@
+{
+  "name": "procure-reconcile",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.25.0",
+  "engines": {
+    "node": ">=24 <25"
+  },
+  "scripts": {
+    "doctor": "node scripts/doctor.mjs",
+    "client:dev": "node scripts/client.mjs dev",
+    "client:preview": "pnpm --filter @procure-reconcile/client dev",
+    "client:build": "pnpm --filter @procure-reconcile/client build",
+    "check:client": "pnpm --filter @procure-reconcile/client typecheck",
+    "check:rust": "node scripts/client.mjs check",
+    "check:server": "node scripts/server.mjs check",
+    "check": "pnpm check:client && pnpm check:rust && pnpm check:server",
+    "test:domain": "node scripts/server.mjs domain",
+    "test:api": "node scripts/server.mjs api",
+    "test:ui": "pnpm --filter @procure-reconcile/client test",
+    "db:migrate": "node scripts/server.mjs migrate",
+    "admin:init": "node scripts/server.mjs admin",
+    "package:mac:intel": "node scripts/client.mjs package-intel",
+    "package:mac:arm64": "node scripts/client.mjs package-arm64",
+    "package:windows": "node scripts/client.mjs package-windows",
+    "docker:build": "docker compose --env-file .local/deploy.env -p procure -f deploy/compose.yml build api",
+    "docker:up": "docker compose --env-file .local/deploy.env -p procure -f deploy/compose.yml up -d",
+    "db:dev:up": "docker compose --env-file .local/dev-db.env -p procure-dev -f deploy/compose.dev.yml up -d",
+    "dev:configure": "node scripts/init-dev.mjs",
+    "dev": "pnpm client:dev",
+    "test:api:pg": "node scripts/test-postgres.mjs",
+    "test:pg:configure": "node scripts/init-test.mjs",
+    "db:test:up": "docker compose --env-file .local/test-db.env -p procure-test -f deploy/compose.test.yml up -d --wait --wait-timeout 60"
+  }
+}

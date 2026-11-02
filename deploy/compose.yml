@@ -1,0 +1,44 @@
+services:
+  db:
+    image: postgres:17-bookworm
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_DB: procure
+      POSTGRES_PASSWORD: ${PROCURE_PG_ADMIN_PASSWORD:?set deployment PG admin password}
+      PROCURE_APP_PASSWORD: ${PROCURE_PG_APP_PASSWORD:?set deployment PG app password}
+    volumes:
+      - postgres:/var/lib/postgresql/data
+      - ./postgres/01-app-role.sh:/docker-entrypoint-initdb.d/01-app-role.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d procure"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+  api:
+    build:
+      context: ..
+      dockerfile: server/Dockerfile
+    image: procure-api:${PROCURE_IMAGE_TAG:-local}
+    restart: unless-stopped
+    environment:
+      PROCURE_ENVIRONMENT: production
+      PROCURE_INSTANCE_ID: ${PROCURE_INSTANCE_ID:?set stable deployment instance id}
+      PROCURE_DATABASE_URL: ${PROCURE_DATABASE_URL:?set deployment application database URL}
+      PROCURE_FILES_DIR: /app/data/files
+      PROCURE_SESSION_HOURS: ${PROCURE_SESSION_HOURS:-24}
+    ports:
+      - "127.0.0.1:18080:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - files:/app/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2)"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+volumes:
+  postgres:
+  files:

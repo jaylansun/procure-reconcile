@@ -1,0 +1,19 @@
+# Optional LAN TLS entry. Requires certificates trusted by each client device.
+# Validate ports and certificate names before enabling. Never publish PostgreSQL.
+services:
+  gateway:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "${PROCURE_LAN_BIND:?set the service Mac LAN IP}:${PROCURE_HTTPS_PORT:-18443}:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ../.local/tls:/etc/procure/tls:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      api:
+        condition: service_healthy
+volumes:
+  caddy_data:
+  caddy_config:

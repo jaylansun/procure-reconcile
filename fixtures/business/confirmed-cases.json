@@ -1,0 +1,10 @@
+{
+  "rule_version": "1.4",
+  "cases": [
+    {"id":"B01","arrival":"100","accepted":"90","problem":"10","problem_returned":"10","net_accepted":"90"},
+    {"id":"B02","order":"100","arrival":"100","accepted":"90","problem":"10","later_accepted":"4","problem_returned":"6","replacement_accepted":"6","net_accepted":"100","cumulative_arrival":"106"},
+    {"id":"B08_REPLENISH","original_obligation":"100","accepted":"100","accepted_returned":"5","return_action":"replenish","effective_obligation":"100","net_accepted":"95"},
+    {"id":"B08_REDUCE","original_obligation":"100","accepted":"100","accepted_returned":"5","return_action":"reduce","effective_obligation":"95","net_accepted":"95"},
+    {"id":"B09","original_obligation":"100","arrival":"105","excess_pending":"5","accept_excess_requires_order_change":true,"uncovered_excess_return_action":"not_applicable"}
+  ]
+}

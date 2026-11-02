@@ -1,0 +1,19 @@
+services:
+  db:
+    image: ${PROCURE_POSTGRES_IMAGE:-postgres:17-bookworm}
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_DB: procure_test
+      POSTGRES_PASSWORD: ${PROCURE_PG_ADMIN_PASSWORD:?set isolated test PG password}
+      PROCURE_APP_PASSWORD: ${PROCURE_PG_APP_PASSWORD:?set isolated test app password}
+    ports:
+      - "127.0.0.1:17432:5432"
+    tmpfs:
+      - /var/lib/postgresql/data
+    volumes:
+      - ./postgres/01-app-role.sh:/docker-entrypoint-initdb.d/01-app-role.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d procure_test"]
+      interval: 3s
+      timeout: 3s
+      retries: 20

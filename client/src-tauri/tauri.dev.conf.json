@@ -1,0 +1,6 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "采购对账工作台 · 开发",
+  "identifier": "com.procurereconcile.desktop.dev",
+  "app": { "windows": [{ "label": "main", "title": "采购对账工作台 · 开发", "width": 1280, "height": 850, "minWidth": 980, "minHeight": 720 }] }
+}
