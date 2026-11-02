@@ -7,6 +7,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.documents.service import FileService
 from app.documents.storage import FileStore, StorageError
 from app.errors import AppError
+from app.maintenance import MaintenanceGate
 from app.persistence.database import Database
 from app.security.admin import initialize_administrator
 from app.services.command_executor import CommandExecutor
@@ -40,13 +41,19 @@ def main() -> int:
     if not configured.instance_id or not configured.database_url:
         parser.error("请配置稳定PROCURE_INSTANCE_ID和PROCURE_DATABASE_URL")
     database = Database(configured.database_url.get_secret_value())
+    gate = MaintenanceGate(
+        getattr(configured, "maintenance_dir", None) or configured.files_dir.parent / "maintenance"
+    )
     try:
         if args.command == "cleanup-files":
-            store = FileStore(configured.files_dir, max_bytes=configured.max_file_bytes)
-            executor = CommandExecutor(database, lock_timeout_ms=configured.command_lock_timeout_ms)
-            removed = FileService(database, store, executor).cleanup_orphans(
-                min_age_seconds=args.min_age_hours * 3600
-            )
+            with gate.writer():
+                store = FileStore(configured.files_dir, max_bytes=configured.max_file_bytes)
+                executor = CommandExecutor(
+                    database, lock_timeout_ms=configured.command_lock_timeout_ms
+                )
+                removed = FileService(database, store, executor).cleanup_orphans(
+                    min_age_seconds=args.min_age_hours * 3600
+                )
             print(f"已回收{removed}份无数据库引用的原件。")
             return 0
         username = args.username or input("管理员名称: ")
@@ -54,7 +61,8 @@ def main() -> int:
         confirmation = getpass.getpass("再次输入密码: ")
         if password != confirmation:
             raise ValueError("两次密码不一致")
-        initialize_administrator(database, username, password)
+        with gate.writer():
+            initialize_administrator(database, username, password)
     except ValueError as error:
         print(str(error), file=sys.stderr)
         return 1

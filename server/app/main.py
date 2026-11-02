@@ -15,6 +15,7 @@ from app.errors import (
     http_error_handler,
     validation_error_handler,
 )
+from app.maintenance import MaintenanceGate
 from app.persistence.database import Database
 from app.security.rate_limit import LoginRateLimiter
 from app.services.command_executor import CommandExecutor
@@ -38,8 +39,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.state.settings = configured
     application.state.database = database
     application.state.login_limiter = LoginRateLimiter()
+    application.state.maintenance_gate = MaintenanceGate(
+        configured.maintenance_dir or configured.files_dir.parent / "maintenance"
+    )
     application.state.command_executor = CommandExecutor(
-        database, lock_timeout_ms=configured.command_lock_timeout_ms
+        database,
+        lock_timeout_ms=configured.command_lock_timeout_ms,
+        gate=application.state.maintenance_gate,
     )
     application.add_exception_handler(AppError, app_error_handler)
     application.add_exception_handler(RequestValidationError, validation_error_handler)

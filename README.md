@@ -2,7 +2,7 @@
 
 本地采购管理与智能对账桌面应用。桌面端：Tauri 2 + React + TypeScript；服务端：FastAPI + PostgreSQL。开发时由 PyCharm 和 VS Code 分别启动服务与客户端，部署时服务进入本机 OrbStack Docker。
 
-当前已建立连接设置、真实服务握手、单管理员登录，以及后端命令幂等、事务/来源锁、审计和原件上传下载公共代码；实际验收范围见执行日志。供应商、订单、收退货、核对、文件解析、AI及Jenkins正式发布按规划逐步开发。
+当前已建立连接设置、真实服务握手、单管理员登录，以及后端命令幂等、事务/来源锁、审计和原件上传下载公共代码，并提供Jenkins构建及受控Docker发布入口；实际验收范围见执行日志。供应商、订单、收退货、核对、文件解析和AI按规划逐步开发。
 
 ## 目录
 
@@ -42,6 +42,8 @@ PyCharm选择 `server/.venv/bin/python`，工作目录 `server/`，运行模块 
 VS Code在根目录执行 `pnpm client:dev`。客户端命令不会自动起停Python或Docker；关闭桌面窗口也不会停止服务。浏览器布局预览另用 `pnpm client:preview`，不能替代原生登录验收。
 
 完整说明见 [本机开发](docs/local-development.md) 与 [容器基础](deploy/README.md)。正式其他设备连接服务Mac的局域网HTTPS地址，在桌面“服务连接”中配置，不能填写其他设备自身的127.0.0.1。
+
+Jenkins日常发布见[构建部署指南](docs/deployment/jenkins.md)：可信main检查通过后构建SHA镜像，维护备份与显式迁移后再开放。开发启动与正式发布仍独立。
 
 ## 验证与状态
 

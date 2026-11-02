@@ -195,3 +195,12 @@ ruff check（app/tests/migrations）、uv lock --check --offline、Node语法检
 按用户要求，在对话中提供Supplier模型、输入结构以及新增/修改/详情/列表业务代码；仅准备schemas/suppliers.py与services/suppliers.py占位文件及schemas包，不写入业务实现、不提前挂载空路由或增加迁移。Supplier类由用户追加到现有persistence/models.py，其他基础表保留。
 
 核对原交接与当前规划后，稳定身份、名称及联系信息是对象范围，字段和状态并未正式冻结；此次示例采用UUID、名称、可选自由文本联系信息、版本及时间，名称200字符/联系信息2000字符为技术建议，不设置名称唯一、税号必填或审批等未经确认规则。实际文件尚未由用户填写，示例不计入已实现或测试通过的业务功能；路由、迁移与测试由助手在用户实际实现就绪后衔接。
+
+
+## 2026-11-02：接入共享Jenkins与采购独立发布流程（验证中）
+
+用户明确要求实际配置并部署，并确认共用现有Jenkins、仅共享CI服务。已通过受控Jenkins API新建procure-reconcile源码任务及独立Secret file procure-deploy-env，保留原DevPilot任务/业务资源；公开main检出不使用DevPilot运行凭据。采购正式配置、随机六位管理员及TLS材料只保存在本机忽略目录与独立凭据中，没有输出或提交秘密。
+
+新增容器化CI、运行/test镜像目标、ops/PG/gateway镜像及独立卷配置；Jenkins workspace不作为Docker宿主bind。维护门禁覆盖认证Session、命令事务、完整上传/清理及管理员/文件维护CLI；持久标记、共享写锁和发布独占排空配合，存活与业务就绪分开。发布控制器记录目标锁/journal、schema/镜像/配置版本，先配套dump与附件哈希备份，恢复到独立临时PG验证，再单次迁移、初始化与候选/认证检查；失败保持维护，不自动恢复生产旧库。
+
+本机分项验证：维护42项、发布控制器30项、CI编排与脱敏12项均通过；初始运行镜像已成功构建。完整Linux容器PG测试、Jenkins实际构建、初次发布和再次发布持久性仍在进行，本节不据此宣称已部署成功。入口和运维边界见docs/deployment/jenkins.md。

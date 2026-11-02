@@ -1,0 +1,14 @@
+**
+!package.json
+!pnpm-lock.yaml
+!pnpm-workspace.yaml
+!client/
+!client/**
+**/node_modules
+**/target
+**/dist
+**/.env
+**/.env.*
+**/*.tsbuildinfo
+**/.DS_Store
+client/src-tauri/gen

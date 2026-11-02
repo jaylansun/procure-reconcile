@@ -1,6 +1,6 @@
 services:
   db:
-    image: postgres:17-bookworm
+    image: procure-db:${PROCURE_IMAGE_TAG:?set immutable release image tag}
     restart: unless-stopped
     environment:
       POSTGRES_USER: postgres
@@ -9,17 +9,13 @@ services:
       PROCURE_APP_PASSWORD: ${PROCURE_PG_APP_PASSWORD:?set deployment PG app password}
     volumes:
       - postgres:/var/lib/postgresql/data
-      - ./postgres/01-app-role.sh:/docker-entrypoint-initdb.d/01-app-role.sh:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d procure"]
       interval: 5s
       timeout: 3s
       retries: 20
   api:
-    build:
-      context: ..
-      dockerfile: server/Dockerfile
-    image: procure-api:${PROCURE_IMAGE_TAG:-local}
+    image: procure-api:${PROCURE_IMAGE_TAG:?set immutable release image tag}
     restart: unless-stopped
     environment:
       PROCURE_ENVIRONMENT: production
@@ -27,6 +23,7 @@ services:
       PROCURE_DATABASE_URL: ${PROCURE_DATABASE_URL:?set deployment application database URL}
       PROCURE_FILES_DIR: /app/data/files
       PROCURE_SESSION_HOURS: ${PROCURE_SESSION_HOURS:-24}
+      PROCURE_MAINTENANCE_DIR: /app/data/maintenance
     ports:
       - "127.0.0.1:18080:8000"
     depends_on:
@@ -42,3 +39,5 @@ services:
 volumes:
   postgres:
   files:
+    external: true
+    name: procure_files

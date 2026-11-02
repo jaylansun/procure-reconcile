@@ -1,0 +1,12 @@
+FROM node:24-bookworm-slim AS client-ci
+ARG HTTP_PROXY
+ARG HTTPS_PROXY
+WORKDIR /work
+RUN corepack enable && corepack install --global pnpm@11.25.0
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY client/package.json ./client/package.json
+RUN pnpm install --frozen-lockfile
+COPY client ./client
+ENV CI=1
+# 只构建React资源，不打包Tauri安装程序或启动Python。
+CMD ["sh", "-c", "mkdir -p /tmp/procure-ci-reports && pnpm check:client && pnpm client:build && pnpm --filter @procure-reconcile/client exec vitest run --reporter=default --reporter=junit --outputFile.junit=/tmp/procure-ci-reports/client-junit.xml"]

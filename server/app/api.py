@@ -68,8 +68,10 @@ def database_session(request: Request) -> Iterator[Session]:
     status = check_readiness(request.app.state.settings, request.app.state.database)
     if not status.ready:
         raise AppError(503, status.reason or "service_not_ready", "服务尚未就绪，请检查初始化状态")
-    with request.app.state.database.sessions() as session:
-        yield session
+    # 共享写锁覆盖Session退出，维护备份会等待所有已有请求完成。
+    with request.app.state.maintenance_gate.writer():
+        with request.app.state.database.sessions() as session:
+            yield session
 
 
 SessionDep = Annotated[Session, Depends(database_session)]
@@ -120,9 +122,10 @@ def current_actor(
     status = check_readiness(request.app.state.settings, database)
     if not status.ready:
         raise AppError(503, status.reason or "service_not_ready", "服务尚未就绪")
-    with database.sessions() as session:
-        auth = authenticated(session, credentials)
-        return Actor(id=auth.user.id, username=auth.user.username)
+    with request.app.state.maintenance_gate.writer():
+        with database.sessions() as session:
+            auth = authenticated(session, credentials)
+            return Actor(id=auth.user.id, username=auth.user.username)
 
 
 ActorDep = Annotated[Actor, Depends(current_actor)]
@@ -137,13 +140,14 @@ def health() -> dict[str, str]:
 def system(request: Request) -> SystemOutput:
     configured = request.app.state.settings
     status = check_readiness(configured, request.app.state.database)
+    maintenance = request.app.state.maintenance_gate.is_maintenance()
     return SystemOutput(
         environment=configured.environment,
         instance_id=configured.instance_id or "unconfigured",
         app_version=request.app.version,
         api_version="1",
-        ready=status.ready,
-        reason=status.reason,
+        ready=status.ready and not maintenance,
+        reason="maintenance" if maintenance else status.reason,
     )
 
 

@@ -1,0 +1,29 @@
+# 每个Jenkins构建使用独立项目名；没有宿主端口、生产卷或工作区bind。
+services:
+  db:
+    image: ${PROCURE_CI_POSTGRES_IMAGE:-postgres:17-bookworm}
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_DB: procure_test
+      POSTGRES_PASSWORD: ${PROCURE_CI_ADMIN_PASSWORD:?isolated CI password required}
+      PROCURE_APP_PASSWORD: ${PROCURE_CI_APP_PASSWORD:?isolated CI app password required}
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d procure_test"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+  backend:
+    image: procure-api-test:${PROCURE_CI_TAG:?CI image tag required}
+    command: ["python", "/tmp/procure-ci/run_backend.py"]
+    environment:
+      TEST_DATABASE_URL: postgresql+psycopg://procure_app:${PROCURE_CI_APP_PASSWORD:?isolated CI app password required}@db:5432/procure_test
+    depends_on:
+      db:
+        condition: service_healthy
+  client:
+    image: procure-client-ci:${PROCURE_CI_TAG:?CI image tag required}
+networks:
+  default:
+    internal: true

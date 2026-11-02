@@ -76,6 +76,15 @@ async def upload_file(
     filename: Annotated[str, Query(min_length=1, max_length=255)],
 ) -> Response:
     """请求体直接发送文件字节；文件名只作显示，不接收客户文件系统路径。"""
+    # 上传暂存和finally清理都属于附件写入，必须一起等待维护排空。
+    with request.app.state.maintenance_gate.writer():
+        return await _receive_upload(request, actor, command_id, filename)
+
+
+async def _receive_upload(
+    request: Request, actor: ActorDep, command_id: UUID, filename: str
+) -> Response:
+    """在已持有写入门禁时接收、暂存并导入原件。"""
     service = _service(request)
     limit = request.app.state.settings.max_file_bytes
     length_header = request.headers.get("content-length")

@@ -60,6 +60,8 @@ uv run --locked pytest
 
 目前实现健康、配置、PG认证、命令幂等与事务、来源锁、审计、原件上传/下载及去重存储。供应商、订单、收退货、对账业务和文件解析/OCR/工作流仍按规划推进。业务接入方式见[后端业务开发指南](../docs/backend-business-guide.md)。
 
+`PROCURE_MAINTENANCE_DIR`缺省为附件根的同级maintenance目录；正式API和维护工具共同挂载独立procure_files卷并使用UID10001。普通写入持有共享flock，持久维护标记开启后拒绝新写入，发布控制器独占排空后备份。`/health`保持存活，`/api/v1/system`在维护中返回ready=false及maintenance原因。坏标记或目录故障保持停写；后台任务以后必须接入同一门禁。
+
 ## 业务命令记录（D05子步骤）
 
 `CommandRecord`映射到`command_records`表，由`0002_commands`迁移创建：

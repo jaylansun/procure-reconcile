@@ -2,6 +2,7 @@
 
 import json
 from collections.abc import Callable, Sequence
+from contextlib import nullcontext
 from dataclasses import dataclass, field
 from typing import Any
 from uuid import UUID
@@ -12,6 +13,7 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session, SessionTransaction
 
 from app.errors import AppError
+from app.maintenance import MaintenanceGate
 from app.persistence.database import Database
 from app.persistence.models import Administrator, CommandRecord
 from app.services.audit import AuditChange, append_audit
@@ -138,7 +140,13 @@ class CommandExecutor:
     原始SQL事务控制、网络或文件副作用。此类副作用不属于PG可回滚范围。
     """
 
-    def __init__(self, database: Database, lock_timeout_ms: int = 3000, max_attempts: int = 3):
+    def __init__(
+        self,
+        database: Database,
+        lock_timeout_ms: int = 3000,
+        max_attempts: int = 3,
+        gate: MaintenanceGate | None = None,
+    ):
         if type(lock_timeout_ms) is not int or lock_timeout_ms <= 0:
             raise ValueError("锁等待时间必须是正整数毫秒")
         if type(max_attempts) is not int or not 1 <= max_attempts <= 3:
@@ -146,6 +154,7 @@ class CommandExecutor:
         self.database = database
         self.lock_timeout_ms = lock_timeout_ms
         self.max_attempts = max_attempts
+        self.gate = gate
 
     def execute(
         self,
@@ -173,23 +182,26 @@ class CommandExecutor:
         if not callable(handler):
             raise ValueError("必须提供同步业务回调")
         selected_sources = tuple(sources)
-        for attempt in range(self.max_attempts):
-            try:
-                return self._attempt(
-                    command_id,
-                    operation,
-                    fingerprint,
-                    actor_id,
-                    handler,
-                    selected_sources,
-                    checked_reason,
-                )
-            except DBAPIError as error:
-                state = getattr(error.orig, "sqlstate", None)
-                if state == "55P03":
-                    raise AppError(409, "resource_busy", "相关记录正在处理，请稍后重试") from error
-                if state not in {"40001", "40P01"} or attempt + 1 >= self.max_attempts:
-                    raise
+        with self.gate.writer() if self.gate is not None else nullcontext():
+            for attempt in range(self.max_attempts):
+                try:
+                    return self._attempt(
+                        command_id,
+                        operation,
+                        fingerprint,
+                        actor_id,
+                        handler,
+                        selected_sources,
+                        checked_reason,
+                    )
+                except DBAPIError as error:
+                    state = getattr(error.orig, "sqlstate", None)
+                    if state == "55P03":
+                        raise AppError(
+                            409, "resource_busy", "相关记录正在处理，请稍后重试"
+                        ) from error
+                    if state not in {"40001", "40P01"} or attempt + 1 >= self.max_attempts:
+                        raise
         raise AssertionError("事务尝试次数已耗尽")
 
     def _attempt(

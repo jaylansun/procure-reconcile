@@ -1,0 +1,18 @@
+# 仅CI维护容器拥有Docker CLI，业务runtime不挂Docker socket。
+ARG RUNTIME_IMAGE=procure-api:local
+FROM docker:29-cli AS docker_cli
+FROM ${RUNTIME_IMAGE} AS operations
+USER root
+COPY --from=docker_cli /usr/local/bin/docker /usr/local/bin/docker
+COPY --from=docker_cli /usr/local/libexec/docker/cli-plugins /usr/local/libexec/docker/cli-plugins
+WORKDIR /opt/procure
+COPY server/app ./server/app
+COPY server/alembic.ini ./server/alembic.ini
+COPY server/migrations ./server/migrations
+COPY deploy ./deploy
+COPY scripts/deploy ./scripts/deploy
+RUN mkdir -p /app/data/files /app/data/maintenance /backups /state /tls \
+    && chown -R 10001:10001 /app/data /backups /state /tls
+ENV PYTHONPATH=/opt/procure/server
+USER 10001:10001
+ENTRYPOINT ["python", "/opt/procure/scripts/deploy/release.py"]

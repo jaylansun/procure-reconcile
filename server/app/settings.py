@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     instance_id: str | None = Field(default=None, min_length=1, max_length=128)
     database_url: SecretStr | None = None
     files_dir: Path = Path(".local/files")
+    maintenance_dir: Path | None = None
     session_hours: int = Field(default=12, ge=1, le=720)
     # 可调整的技术默认值，后续解析资源实验可按环境修改，不作为业务额度。
     max_file_bytes: int = Field(default=25 * 1024 * 1024, ge=1, le=1024 * 1024 * 1024)
