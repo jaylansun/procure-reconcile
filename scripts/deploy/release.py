@@ -13,6 +13,7 @@ import os
 import re
 import secrets
 import signal
+import ssl
 import stat
 import subprocess
 import sys
@@ -386,6 +387,34 @@ with urllib.request.urlopen('http://api:8000/api/v1/system', timeout=10) as resp
 print(json.dumps({'ok': True}))
 """
 
+CANDIDATE_TLS_SCRIPT = r"""
+import http.client, json, socket, ssl, sys
+configuration = json.load(sys.stdin)
+hostname = configuration['server_hostname']
+context = ssl.create_default_context(cadata=configuration['ca_certificate'])
+for path in ('/health', '/api/v1/system'):
+    connection = http.client.HTTPConnection('gateway', 443, timeout=10)
+    raw = socket.create_connection(('gateway', 443), timeout=10)
+    try:
+        # TCP目标是内部服务名，证书验证始终使用真实LAN地址及受信任CA。
+        connection.sock = context.wrap_socket(raw, server_hostname=hostname)
+        connection.request('GET', path, headers={'Host': hostname, 'Connection': 'close'})
+        response = connection.getresponse()
+        if response.status != 200:
+            raise RuntimeError('TLS endpoint status failed')
+        document = json.loads(response.read())
+        if path == '/health' and document.get('status') != 'alive':
+            raise RuntimeError('TLS liveness failed')
+        if path == '/api/v1/system' and (
+            document.get('ready') is not False or document.get('reason') != 'maintenance'
+        ):
+            raise RuntimeError('TLS maintenance readiness failed')
+    finally:
+        connection.close()
+        raw.close()
+print(json.dumps({'ok': True}))
+"""
+
 AUTH_SMOKE_SCRIPT = r"""
 import json, sys, urllib.request
 from app.settings import Settings
@@ -435,6 +464,7 @@ class Controller:
         state: Path = Path("/state"),
         backups: Path = Path("/backups"),
         data: Path = Path("/app/data"),
+        tls: Path = Path("/tls"),
         root: Path = ROOT,
         runner: Runner | None = None,
         gate=None,
@@ -453,6 +483,7 @@ class Controller:
         )
         self.release_id = f"{build_number}-{commit_sha[:12]}"
         self.state, self.backups, self.data, self.root = state, backups, data, root
+        self.tls = tls
         self.runner, self.gate = runner or Runner(), gate
         self.journal: dict = {}
         self.compose_command: list[str] = []
@@ -637,7 +668,18 @@ class Controller:
             made_container = True
             for attempt in range(60):
                 result = self.runner.run(
-                    ["docker", "exec", name, "pg_isready", "-U", "postgres", "-d", "procure"],
+                    [
+                        "docker",
+                        "exec",
+                        name,
+                        "pg_isready",
+                        "-h",
+                        "127.0.0.1",
+                        "-U",
+                        "postgres",
+                        "-d",
+                        "procure",
+                    ],
                     timeout=5,
                     check=False,
                 )
@@ -716,6 +758,26 @@ class Controller:
             )
             if result.stdout.decode().strip() != self.journal["images"][service]:
                 raise ReleaseError("running_image_mismatch")
+
+    def _candidate_tls(self) -> None:
+        """只读公共CA经stdin交探针；证书或网关故障统一阻止开放。"""
+        try:
+            with (self.tls / "ca.crt").open("rb") as stream:
+                certificate = stream.read(64 * 1024 + 1)
+            if not certificate or len(certificate) > 64 * 1024:
+                raise ValueError("invalid CA size")
+            ca_certificate = certificate.decode("ascii")
+            # 在ops侧先拒绝无效CA，API探针还会独立验证网关证书和主机名。
+            ssl.create_default_context(cadata=ca_certificate)
+            payload = json.dumps(
+                {
+                    "server_hostname": self.configuration.values["PROCURE_LAN_BIND"],
+                    "ca_certificate": ca_certificate,
+                }
+            ).encode("utf-8")
+            self.api_script(CANDIDATE_TLS_SCRIPT, input_data=payload)
+        except Exception:
+            raise ReleaseError("candidate_tls_failed") from None
 
     def run(self) -> dict:
         with target_lock(self.state):
@@ -801,6 +863,7 @@ class Controller:
                         )
                         self._assert_running_images()
                         self.api_script(MAINTENANCE_HTTP_SCRIPT)
+                        self._candidate_tls()
                         self.event("opening")
                         self.gate.set_maintenance(False, release_id=self.release_id)
                     self.event("authenticated_smoke")

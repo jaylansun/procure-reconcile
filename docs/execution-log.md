@@ -1,5 +1,7 @@
 # 执行日志
 
+当前部署概况（2026-11-02）：共享Jenkins中的独立采购任务已完成首次发布，构建#1为SUCCESS，源码aeb4994b0cfa488bd08ad761ede075add82a19b4。正式API、PG与HTTPS网关已运行，Mac经独立CA验证HTTPS登录和原件上传下载。最新构建与配套备份记录以 http://127.0.0.1:8080/job/procure-reconcile/ 为准；下方早期条目保留当时状态。
+
 ## 2026-10-16：首个工程与认证基础版本
 
 目标：按已确认方案开始实现，先建立client/server、独立运行及认证基础，不变更选题或重复询问已定规则。
@@ -204,3 +206,16 @@ ruff check（app/tests/migrations）、uv lock --check --offline、Node语法检
 新增容器化CI、运行/test镜像目标、ops/PG/gateway镜像及独立卷配置；Jenkins workspace不作为Docker宿主bind。维护门禁覆盖认证Session、命令事务、完整上传/清理及管理员/文件维护CLI；持久标记、共享写锁和发布独占排空配合，存活与业务就绪分开。发布控制器记录目标锁/journal、schema/镜像/配置版本，先配套dump与附件哈希备份，恢复到独立临时PG验证，再单次迁移、初始化与候选/认证检查；失败保持维护，不自动恢复生产旧库。
 
 本机分项验证：维护42项、发布控制器30项、CI编排与脱敏12项均通过；初始运行镜像已成功构建。完整Linux容器PG测试、Jenkins实际构建、初次发布和再次发布持久性仍在进行，本节不据此宣称已部署成功。入口和运维边界见docs/deployment/jenkins.md。
+
+
+## 2026-11-02：Jenkins首次真实发布成功与重复发布验收准备
+
+独立任务procure-reconcile构建#1于2026-11-02完成SUCCESS，持续281秒；SCM检出aeb4994b0cfa488bd08ad761ede075add82a19b4。Linux容器中469项后端用例全部通过、无跳过，包含164项真实PG；前端类型检查、Vite构建及2项组件测试通过。镜像按SHA-构建号标记，测试成功后才加载独立Secret file。
+
+发布记录1-aeb4994b0cfa真实完成目标锁、维护排空、PG逻辑dump、附件tar/哈希、独立PG恢复验证、Alembic从空库升级0003_infrastructure、管理员初始化、文件原子读写、候选及会话/工作台/退出冒烟。记录保存在procure_release_state和Jenkins脱敏JSONL归档，配套备份在procure_backups。首次API、PG、gateway均启动，PG不发布端口，API仅回环18080，HTTPS网关绑定当前Mac的192.168.1.88:18443。DevPilot任务最后构建仍为#45 SUCCESS，业务容器保持运行。
+
+Mac通过公开CA证书做正常验链和主机名校验，HTTPS真实登录、工作台、原件上传下载及SHA256一致检查通过。已保存明确标注“部署持久化验收.png”的合成原件及仅本机proof，用于下一次API替换后核对DB元数据、UUID与原件内容；不创建采购订单或供应商假业务。根证书未自动安装到任何设备信任库，其他设备LAN访问/安装仍需真实验收。
+
+首次本机容器预检曾发现Compose create不支持--no-deps，修正为create backend client后完整CI通过；未触碰正式服务。Docker Hub一次认证DNS超时经有限的镜像拉取重试恢复，未更改共享Docker代理或重启Jenkins/DevPilot。
+
+继续加强发布门禁：候选阶段新增gateway HTTPS检查，经独立CA验证LAN主机名，失败不开门；恢复PG和CI/新正式PG健康检测使用TCP，避免初始化临时Unix socket误报就绪。新增5项TLS故障/顺序回归，控制器35项测试及CI编排12项通过。此版本用于再次从Jenkins发布并验证已保存数据持久性；实际最新结果见Jenkins构建及发布卷记录，不预报尚未完成的验收。

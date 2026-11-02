@@ -10,7 +10,7 @@
 - 管理员资料：本机忽略提交的`.local/production-admin.txt`，正式环境随机生成六位数字密码，不存在共享默认密码。
 - 独立部署配置：本机`.local/deploy.env`及Jenkins Secret file `procure-deploy-env`。首次初始化和认证冒烟需要独立bootstrap字段，已有管理员不会被覆盖；修改密码后需同步该凭据供发布验证。
 
-客户端使用HTTPS地址。在其他Mac/Windows设备上需要信任`.local/tls/ca.crt`所表示的本项目根证书；只分发这个公开证书，不分发`ca.key`或`server.key`。本轮不自动修改操作系统信任设置。地址变化后需重新签发匹配SAN的服务证书并更新配置，不能关闭证书验证。
+客户端使用HTTPS地址。在其他Mac/Windows设备上需要信任`.local/tls/ca.crt`所表示的本项目根证书；只分发这个公开证书，不分发`ca.key`或`server.key`。桌面网络层采用系统根证书，信任导入后重启桌面客户端再连接。本轮不自动修改操作系统信任设置。地址变化后需重新签发匹配SAN的服务证书并更新配置，不能关闭证书验证。
 
 ## 每次构建
 
@@ -19,7 +19,7 @@
 3. 构建`procure-api`、`procure-ops`、`procure-db`、`procure-gateway`四个镜像，记录SHA标签、源码revision及镜像ID。ops仅用于维护，不给业务API挂Docker socket。
 4. 注入本项目Secret file，启动一次性维护容器。跨任务目标flock和持久journal阻止重叠发布及无条件重试。
 5. 持久启用维护，停止并排空API，PG保持运行。逻辑dump与附件tar/逐文件SHA256配套保存，恢复到独立临时PG验证后才迁移。
-6. 待发布镜像显式执行一次Alembic。首次受控初始化管理员，已有账号必须匹配且不覆盖；候选验证schema、文件原子读写及维护中的HTTP状态。
+6. 待发布镜像显式执行一次Alembic。首次受控初始化管理员，已有账号必须匹配且不覆盖；候选验证schema、文件原子读写、维护中的HTTP状态及经CA/主机名校验的网关HTTPS。
 7. 开放后验证真实登录、会话、工作台和退出。全部通过才记录成功；失败保持维护与诊断现场，不自动覆盖数据库。
 
 首次初始化由Jenkins Secret file经stdin提供，只给短生命周期维护命令；不扩展普通CLI的明文参数，也不把bootstrap密码注入长期API。日常管理员CLI仍采用交互隐藏输入。
@@ -51,3 +51,5 @@ Jenkins构建页查看阶段和`.local/release-reports/release-<构建号>.jsonl
 部署维护控制器当前只覆盖已实现的API、命令、上传和维护CLI；未来worker、LangGraph及检查点写入必须接入同一门禁后才能发布。桌面安装包仍分别构建，此流水线中的React构建不等于macOS/Windows安装验收。其他LAN设备的证书信任与网络可达性需在真实设备验收。
 
 实际构建号、通过范围和发布结果以执行日志及Jenkins记录为准。
+
+首个验收基线：Jenkins构建#1 SUCCESS（281秒），源码aeb4994b0cfa488bd08ad761ede075add82a19b4，后端469项和前端2项通过；schema为0003_infrastructure。最新状态以Jenkins构建页及归档发布记录为准。

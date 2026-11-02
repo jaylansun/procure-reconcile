@@ -1,6 +1,7 @@
 """不启动Docker，以故障注入验证发布停写、恢复隔离、秘密与备份完整性。"""
 
 import importlib.util
+import io
 import json
 import os
 import stat
@@ -8,6 +9,8 @@ import subprocess
 import sys
 from contextlib import contextmanager
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import Mock
 from urllib.parse import quote
 
 import pytest
@@ -21,6 +24,28 @@ SPEC.loader.exec_module(release)
 COMMIT = "a" * 40
 IMAGE_ID = "sha256:" + "b" * 64
 TEST_PASSWORD = "synthetic-app-password"
+# 合成测试公共证书；生成时的私钥已销毁，不使用部署证书或用户私有配置。
+TEST_CA = """-----BEGIN CERTIFICATE-----
+MIIDNTCCAh2gAwIBAgIUEqJWvt5LDLQg9E9HrYU6dKocZuEwDQYJKoZIhvcNAQEL
+BQAwKjEoMCYGA1UEAwwfUHJvY3VyZSBDb250cm9sbGVyIFVuaXQgVGVzdCBDQTAe
+Fw0yNjExMDIxNTQzMjZaFw0zNjEwMzAxNTQzMjZaMCoxKDAmBgNVBAMMH1Byb2N1
+cmUgQ29udHJvbGxlciBVbml0IFRlc3QgQ0EwggEiMA0GCSqGSIb3DQEBAQUAA4IB
+DwAwggEKAoIBAQC6i8Wj59F7WM/GDGUVH9AH1J0c/H0s78szqQFylVAi/rygq7NR
+oB49jzVcZebDLsGRxn538LwnvOSlvanenCgOZPGIvLUN9h1AHSnJcvOkITn9xx0W
+hs9LlKRaRRWkA9L99+hCER5vDwRDNieY+zpxbLlbR7Qd0qL7lie1UjOPJD9yRTNg
+FJKCo54Bny6bfi8ZXZK2HSMlLm/RCeaFvuPgnqLCnFSS1zO7WuxGRmF8DnfWab8N
+Kjqt3CHX8VkvCx2cjl9HRfsZq4t/7RtTSrt7044HUB/Q220rQYNL7s24Q/usJIMd
+PwVn54zi2ZQ+XXOkEZS0GU0wLL/6igtCm6i5AgMBAAGjUzBRMB0GA1UdDgQWBBSi
+LGHmLHl0JzGT/nBMQ9CTdhw50DAfBgNVHSMEGDAWgBSiLGHmLHl0JzGT/nBMQ9CT
+dhw50DAPBgNVHRMBAf8EBTADAQH/MA0GCSqGSIb3DQEBCwUAA4IBAQAYTtj0HXqM
+pJAvO+KHjvxCIF8NKO+fIgkgYeBQarJw7jD8FcIiu0bPCrj4yrDEvDkD8FYxdvz5
+j4G5Ffmm54HKq+a04dsg+9q2RpeZp/qXZuJwLMEickyu75d54Er8OWvUnSBEGk9X
+qWrwE3hdfo42xZzZUECRYc6G6fG3KbQ5BHCMVE7dLjzlmPbvFH8sbUweV73mDQ2W
+NR/yBQf/YCW0Kx0iG/Mq5lhedxfrpXBHp4ySxw8jnvTQT5WDVMC2X4A6JHQurRoO
+uH7GY5RAjh2sPwb0TlN82OOP7yd7WPc7IU4170Mv9yRWVsAYe0tJC5Sc05G9/kCG
+jS2oTknIvNqe
+-----END CERTIFICATE-----
+"""
 
 
 def configuration_bytes(**overrides):
@@ -102,7 +127,11 @@ class Docker:
                     raise RuntimeError("private migration SQL")
             if "-c" in arguments:
                 script = arguments[-1]
-                if script in (release.CANDIDATE_SCRIPT, release.MAINTENANCE_HTTP_SCRIPT):
+                if script in (
+                    release.CANDIDATE_SCRIPT,
+                    release.MAINTENANCE_HTTP_SCRIPT,
+                    release.CANDIDATE_TLS_SCRIPT,
+                ):
                     assert self.gate.active and self.gate.exclusive_active
                 if script == release.AUTH_SMOKE_SCRIPT:
                     assert not self.gate.active and not self.gate.exclusive_active
@@ -111,6 +140,8 @@ class Docker:
                     and script == release.MAINTENANCE_HTTP_SCRIPT
                     or self.failure == "smoke"
                     and script == release.AUTH_SMOKE_SCRIPT
+                    or self.failure == "tls"
+                    and script == release.CANDIDATE_TLS_SCRIPT
                 ):
                     raise RuntimeError("private token from failed HTTP smoke")
                 stdout = json.dumps({"ok": True, "schema": ["0003_infrastructure"]}).encode()
@@ -148,6 +179,9 @@ def make_controller(tmp_path, failure=None, *, initial_schema=True):
     data = tmp_path / "data"
     (data / "files/objects").mkdir(parents=True)
     (data / "files/objects/example").write_bytes(b"immutable attachment")
+    tls = tmp_path / "tls"
+    tls.mkdir()
+    (tls / "ca.crt").write_text(TEST_CA)
     controller = release.Controller(
         release.Configuration.read(configuration_bytes()),
         "test-1",
@@ -156,6 +190,7 @@ def make_controller(tmp_path, failure=None, *, initial_schema=True):
         state=tmp_path / "state",
         backups=tmp_path / "backups",
         data=data,
+        tls=tls,
         root=tmp_path / "checkout",
         runner=docker,
         gate=gate,
@@ -262,11 +297,25 @@ def test_success_backs_up_verifies_restores_and_opens_last(tmp_path, capsys, ini
     assert any("volume rm procure-restore-1-data" in command for command in commands)
     assert not any("BOOTSTRAP" in env for env in docker.compose_environments)
     assert all("PROCURE_APP_PASSWORD=" in env for env in docker.restore_environments)
+    probes = [arguments[-1] for arguments in docker.calls if "-c" in arguments]
+    assert probes.index(release.CANDIDATE_TLS_SCRIPT) < probes.index(release.AUTH_SMOKE_SCRIPT)
+    tls_index = next(
+        index
+        for index, arguments in enumerate(docker.calls)
+        if arguments[-1] == release.CANDIDATE_TLS_SCRIPT
+    )
+    tls_payload = json.loads(docker.inputs[tls_index])
+    assert tls_payload == {"server_hostname": "192.0.2.10", "ca_certificate": TEST_CA}
+    readiness = [arguments for arguments in docker.calls if "pg_isready" in arguments]
+    assert readiness and all(
+        "-h" in arguments and "127.0.0.1" in arguments for arguments in readiness
+    )
     # 凭据只存在stdin/0600临时文件，不出现在argv、journal或结构日志中。
     output = capsys.readouterr().out
     combined = "\n".join(commands) + json.dumps(journal) + output
     for secret in (TEST_PASSWORD, "synthetic-admin-password", "012345"):
         assert secret not in combined
+    assert TEST_CA not in combined
     assert all(
         json.loads(line)["status"] in {"running", "succeeded"} for line in output.splitlines()
     )
@@ -377,3 +426,90 @@ def test_invalid_configuration_version_is_rejected(version):
     """配置版本禁止空白、超长、控制字符与无效UTF8。"""
     with pytest.raises(release.ReleaseError, match="invalid_configuration_version"):
         release.Configuration.read(configuration_bytes(PROCURE_CONFIG_VERSION=version))
+
+
+@pytest.mark.parametrize("failure", ["missing_ca", "invalid_ca", "oversized_ca", "tls"])
+def test_candidate_tls_failure_never_opens_maintenance(tmp_path, capsys, failure):
+    """CA和TLS故障均在开门前中止，不把CA内容或原始TLS错误写入报告。"""
+    controller, gate, _ = make_controller(tmp_path, failure)
+    certificate = controller.tls / "ca.crt"
+    if failure == "missing_ca":
+        certificate.unlink()
+    elif failure == "invalid_ca":
+        certificate.write_text("synthetic invalid certificate")
+    elif failure == "oversized_ca":
+        certificate.write_bytes(b"A" * (64 * 1024 + 1))
+    with pytest.raises(release.ReleaseError, match="candidate_tls_failed"):
+        controller.run()
+    assert gate.active
+    assert False not in gate.events
+    journal = json.loads((controller.state / "current.json").read_text())
+    assert journal["phase"] == "candidate"
+    assert journal["error_code"] == "candidate_tls_failed"
+    assert TEST_CA not in capsys.readouterr().out + json.dumps(journal)
+
+
+def test_tls_probe_uses_gateway_socket_and_verified_lan_hostname(monkeypatch, capsys):
+    """执行实际探针脚本，验证TCP目标、默认信任校验、SNI与两条HTTPS请求。"""
+    import http.client
+    import socket
+    import ssl
+
+    hostname = "192.0.2.10"
+    raw = Mock()
+    context = Mock(check_hostname=True, verify_mode=ssl.CERT_REQUIRED)
+
+    def wrap_socket(stream, *, server_hostname):
+        assert context.check_hostname is True
+        assert context.verify_mode == ssl.CERT_REQUIRED
+        assert server_hostname == hostname
+        assert stream is raw
+        return stream
+
+    context.wrap_socket.side_effect = wrap_socket
+    create_context = Mock(return_value=context)
+    connect = Mock(return_value=raw)
+    requests = []
+
+    class Connection:
+        def __init__(self, host, port, *, timeout):
+            assert (host, port, timeout) == ("gateway", 443, 10)
+
+        def request(self, method, path, *, headers):
+            assert method == "GET" and headers["Host"] == hostname
+            self.path = path
+            requests.append(path)
+
+        def getresponse(self):
+            body = (
+                {"status": "alive"}
+                if self.path == "/health"
+                else {"ready": False, "reason": "maintenance"}
+            )
+            return SimpleNamespace(status=200, read=lambda: json.dumps(body).encode())
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(ssl, "create_default_context", create_context)
+    monkeypatch.setattr(socket, "create_connection", connect)
+    monkeypatch.setattr(http.client, "HTTPConnection", Connection)
+    monkeypatch.setattr(
+        sys,
+        "stdin",
+        io.StringIO(
+            json.dumps(
+                {
+                    "server_hostname": hostname,
+                    "ca_certificate": TEST_CA,
+                }
+            )
+        ),
+    )
+    exec(release.CANDIDATE_TLS_SCRIPT, {})
+    create_context.assert_called_once_with(cadata=TEST_CA)
+    assert context.wrap_socket.call_count == 2
+    assert connect.call_count == 2
+    connect.assert_called_with(("gateway", 443), timeout=10)
+    assert requests == ["/health", "/api/v1/system"]
+    assert json.loads(capsys.readouterr().out) == {"ok": True}
