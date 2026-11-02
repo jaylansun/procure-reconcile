@@ -2,7 +2,7 @@
 
 本地采购管理与智能对账桌面应用。桌面端：Tauri 2 + React + TypeScript；服务端：FastAPI + PostgreSQL。开发时由 PyCharm 和 VS Code 分别启动服务与客户端，部署时服务进入本机 OrbStack Docker。
 
-当前已建立首个基础版本的代码：连接设置、真实服务握手、单管理员登录及开发/部署环境隔离；实际验收范围见执行日志。订单、收退货、核对、文件解析、AI及Jenkins正式发布按规划逐步开发，尚不宣称可用。
+当前已建立连接设置、真实服务握手、单管理员登录，以及后端命令幂等、事务/来源锁、审计和原件上传下载公共代码；实际验收范围见执行日志。供应商、订单、收退货、核对、文件解析、AI及Jenkins正式发布按规划逐步开发。
 
 ## 目录
 
@@ -12,6 +12,7 @@
 - `scripts/`：独立启动、检查及开发配置生成入口。
 - `docs/implementation-plan.md`：已确认需求与58项实施任务。
 - `docs/execution-log.md`：本轮实际修改、验收及下一步。
+- `docs/backend-business-guide.md`：公共代码用法、业务命令接入和原件API说明。
 
 原有根 `main.py` PyCharm示例保留，应用入口为 `server/app/main.py`。
 

@@ -9,7 +9,7 @@ from sqlalchemy import delete
 from sqlalchemy.engine import make_url
 
 from app.persistence.database import Database, normalize_database_url
-from app.persistence.models import Administrator, AuthSession
+from app.persistence.models import Administrator, AuditEvent, AuthSession, CommandRecord, StoredFile
 
 SERVER_ROOT = Path(__file__).resolve().parents[1]
 
@@ -19,7 +19,7 @@ def postgres_database():
     """Destructive auth test fixture: never infer a URL from application settings.
 
     Only explicitly selected dedicated test databases are accepted. This fixture
-    migrates and clears the two auth tables, never creates/drops a database.
+    migrates and clears auth/infrastructure tables, never creates/drops a database.
     Do not run simultaneous test jobs against the same database.
     """
     supplied = os.environ.get("TEST_DATABASE_URL")
@@ -33,12 +33,18 @@ def postgres_database():
     command.upgrade(migration, "head")
     database = Database(supplied)
     with database.sessions.begin() as session:
+        session.execute(delete(AuditEvent))
+        session.execute(delete(CommandRecord))
+        session.execute(delete(StoredFile))
         session.execute(delete(AuthSession))
         session.execute(delete(Administrator))
     try:
         yield database
     finally:
         with database.sessions.begin() as session:
+            session.execute(delete(AuditEvent))
+            session.execute(delete(CommandRecord))
+            session.execute(delete(StoredFile))
             session.execute(delete(AuthSession))
             session.execute(delete(Administrator))
         database.close()

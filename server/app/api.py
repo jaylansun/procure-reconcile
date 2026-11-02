@@ -103,6 +103,31 @@ def authenticated(
 AuthDep = Annotated[AuthContext, Depends(authenticated)]
 
 
+@dataclass(frozen=True)
+class Actor:
+    """供业务命令使用的身份快照，不向回调传递口令或登录令牌。"""
+
+    id: int
+    username: str
+
+
+def current_actor(
+    request: Request,
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer)],
+) -> Actor:
+    """先完成鉴权并关闭只读Session，避免上传期间长期占用数据库连接。"""
+    database = request.app.state.database
+    status = check_readiness(request.app.state.settings, database)
+    if not status.ready:
+        raise AppError(503, status.reason or "service_not_ready", "服务尚未就绪")
+    with database.sessions() as session:
+        auth = authenticated(session, credentials)
+        return Actor(id=auth.user.id, username=auth.user.username)
+
+
+ActorDep = Annotated[Actor, Depends(current_actor)]
+
+
 @router.get("/health")
 def health() -> dict[str, str]:
     return {"status": "alive"}

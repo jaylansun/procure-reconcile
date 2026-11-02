@@ -15,6 +15,9 @@ class Settings(BaseSettings):
     database_url: SecretStr | None = None
     files_dir: Path = Path(".local/files")
     session_hours: int = Field(default=12, ge=1, le=720)
+    # 可调整的技术默认值，后续解析资源实验可按环境修改，不作为业务额度。
+    max_file_bytes: int = Field(default=25 * 1024 * 1024, ge=1, le=1024 * 1024 * 1024)
+    command_lock_timeout_ms: int = Field(default=3000, ge=1, le=60000)
 
     @field_validator("instance_id")
     @classmethod

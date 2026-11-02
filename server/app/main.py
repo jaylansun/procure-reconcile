@@ -17,6 +17,7 @@ from app.errors import (
 )
 from app.persistence.database import Database
 from app.security.rate_limit import LoginRateLimiter
+from app.services.command_executor import CommandExecutor
 from app.settings import Settings
 
 logger = logging.getLogger("procure.api")
@@ -37,6 +38,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.state.settings = configured
     application.state.database = database
     application.state.login_limiter = LoginRateLimiter()
+    application.state.command_executor = CommandExecutor(
+        database, lock_timeout_ms=configured.command_lock_timeout_ms
+    )
     application.add_exception_handler(AppError, app_error_handler)
     application.add_exception_handler(RequestValidationError, validation_error_handler)
     application.add_exception_handler(HTTPException, http_error_handler)
@@ -69,6 +73,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     from app.api import router
 
     application.include_router(router)
+    from app.documents.api import router as file_router
+
+    application.include_router(file_router)
     return application
 
 

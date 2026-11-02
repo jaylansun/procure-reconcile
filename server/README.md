@@ -22,7 +22,7 @@ uv run --locked uvicorn app.main:app --host 127.0.0.1 --port 18081 --reload
 
 PyCharm解释器选择`server/.venv/bin/python`（Windows为`.venv/Scripts/python.exe`），工作目录为`server/`；依赖变更后先执行`uv sync --locked`。使用共享的Procure API运行配置时，依然调用同一uv环境，不启动第二套Python。
 
-应用从工作目录读取`.env`，配置`PROCURE_ENVIRONMENT`、稳定的`PROCURE_INSTANCE_ID`、PostgreSQL `PROCURE_DATABASE_URL`、`PROCURE_FILES_DIR`及可选`PROCURE_SESSION_HOURS`（缺省12）。管理员密码长度6至128个字符，允许6位纯数字；初始化管理员必须在交互终端隐藏输入密码，不接受命令行密码，不覆盖已有管理员。应用不会自动迁移或创建默认账号。
+应用从工作目录读取`.env`，配置`PROCURE_ENVIRONMENT`、稳定的`PROCURE_INSTANCE_ID`、PostgreSQL `PROCURE_DATABASE_URL`、`PROCURE_FILES_DIR`及可选`PROCURE_SESSION_HOURS`（缺省12）、`PROCURE_MAX_FILE_BYTES`（缺省25MiB，可配置技术上限）、`PROCURE_COMMAND_LOCK_TIMEOUT_MS`（缺省3000毫秒）。管理员密码长度6至128个字符，允许6位纯数字；初始化管理员必须在交互终端隐藏输入密码，不接受命令行密码，不覆盖已有管理员。应用不会自动迁移或创建默认账号。
 
 ## 依赖变更
 
@@ -44,7 +44,7 @@ uv run --locked ruff check app tests
 uv run --locked pytest
 ```
 
-真实PG集成测试需要显式`TEST_DATABASE_URL`，仅允许独立`test`、`test_*`或`*_test`数据库；会迁移并清理该测试库认证表，不能连接开发或正式库，也不要并行使用同一测试库。仓库根`pnpm test:api:pg`通过uv运行同一套测试，私有密码不输出。
+真实PG集成测试需要显式`TEST_DATABASE_URL`，仅允许独立`test`、`test_*`或`*_test`数据库；会迁移并清理该测试库认证、命令、审计及原件元数据表，不能连接开发或正式库，也不要并行使用同一测试库。仓库根`pnpm test:api:pg`通过uv运行同一套测试，私有密码不输出。
 
 ## Docker与CI约定
 
@@ -58,6 +58,27 @@ uv run --locked pytest
 
 `POST /api/v1/auth/login`取得随机会话，其他身份/工作台/退出请求使用Bearer；数据库仅存token的SHA-256哈希。多设备会话独立过期/失效。当前单API进程按来源限制失败登录，计数重启会重置，LAN仍须可信HTTPS。
 
-目前实现健康、配置、PG认证及真实连接身份；订单、收退货、完整幂等、文件、业务审计及工作流仍按规划推进。
+目前实现健康、配置、PG认证、命令幂等与事务、来源锁、审计、原件上传/下载及去重存储。供应商、订单、收退货、对账业务和文件解析/OCR/工作流仍按规划推进。业务接入方式见[后端业务开发指南](../docs/backend-business-guide.md)。
+
+## 业务命令记录（D05子步骤）
+
+`CommandRecord`映射到`command_records`表，由`0002_commands`迁移创建：
+
+| 字段 | 用途 |
+| --- | --- |
+| command_id | 调用方提供的UUID主键，重试时保持相同，不由数据库自动生成 |
+| operation | 最长128字符、非空白的操作名称，保留原值 |
+| request_fingerprint | 64位小写十六进制请求指纹；不同命令允许指纹相同 |
+| response_status | 已成功执行的响应状态码，范围200至299，无默认值 |
+| response_body | JSONB响应内容；Python None存为SQL NULL，JSON.NULL可表示JSON null |
+| created_at | PostgreSQL生成的带时区创建时间 |
+
+`CommandExecutor`已接入同ID重放、载荷冲突、并发串行与有限事务重试；业务变更、成功记录及审计在同一事务提交。接口继承`CommandInput`或`VersionedCommandInput`，注入`ActorDep`和`CommandExecutorDep`，使用`command_response()`返回结果。业务回调不自行提交事务或执行外部副作用。
+
+`0003_infrastructure`新增`audit_events`和`stored_files`。审计对象外键延迟至事务提交检查；原件按摘要唯一存储，使用UUID文件标识关联业务。`POST /api/v1/files`使用原始字节请求体、`filename`查询参数及`X-Command-ID`请求头；元数据和下载接口均要求Bearer认证。上传不代表已完成内容解析。
+
+显式回收无元数据引用且超过宽限时间的物理对象：`uv run --locked python -m app.cli cleanup-files --min-age-hours 24`。受内容锁保护，不自动清理已有元数据的原件，也不在服务启动时回收。
+
+新增迁移后，开发库仍需在`server/`显式执行`uv run --locked alembic upgrade head`。本轮迁移只在独立测试库验证，不自动升级开发或正式数据库。就绪检查会同时核对迁移版本和命令表，旧结构或缺表保持未就绪。
 
 uv约定依据：[项目结构](https://docs.astral.sh/uv/concepts/projects/layout/)、[锁定与同步](https://docs.astral.sh/uv/concepts/projects/sync/)、[Docker集成](https://docs.astral.sh/uv/guides/integration/docker/)。
