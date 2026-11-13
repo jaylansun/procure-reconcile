@@ -12,7 +12,9 @@ def normalize_database_url(url: str) -> str:
     raise ValueError("Only PostgreSQL is supported")
 
 
-class Database:
+class DatabaseManager:
+    """数据库连接和会话管理器，统一创建资源并在退出时释放。"""
+
     def __init__(self, url: str | None):
         self.engine: Engine | None = None
         self.sessions: sessionmaker[Session] | None = None

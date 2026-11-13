@@ -98,13 +98,13 @@ def parse_dotenv(raw: bytes) -> dict[str, str]:
 
 
 @dataclass(frozen=True)
-class Configuration:
+class ReleaseSettings:
     """内存中的部署配置不参与repr，bootstrap凭据不进入长期服务环境。"""
 
     values: dict[str, str] = field(repr=False)
 
     @classmethod
-    def read(cls, raw: bytes) -> Configuration:
+    def read(cls, raw: bytes) -> ReleaseSettings:
         values = parse_dotenv(raw)
         required = (
             "PROCURE_INSTANCE_ID",
@@ -198,7 +198,7 @@ def write_env(path: Path, values: dict[str, str], *, compose: bool = True) -> No
         os.fsync(stream.fileno())
 
 
-class Runner:
+class DockerRunner:
     """所有Docker调用使用参数数组，捕获输出并只向上抛固定安全错误码。"""
 
     def run(
@@ -319,17 +319,17 @@ def verify_backup(directory: Path, manifest: dict) -> None:
 
 BOOTSTRAP_SCRIPT = r"""
 import json, sys
-from app.persistence.database import Database
-from app.persistence.models import Administrator
+from app.persistence.database import DatabaseManager
+from app.persistence.models import AdministratorDO
 from app.security.admin import initialize_administrator
 from app.security.passwords import verify_password
 from app.settings import Settings
 data = json.load(sys.stdin)
 settings = Settings()
-database = Database(settings.database_url.get_secret_value())
+database = DatabaseManager(settings.database_url.get_secret_value())
 try:
     with database.sessions() as session:
-        existing = session.get(Administrator, 1)
+        existing = session.get(AdministratorDO, 1)
         if existing is not None:
             matches = verify_password(data['password'], existing.password_hash)
             if existing.username != data['username'] or not matches:
@@ -346,12 +346,12 @@ import json, secrets
 from pathlib import Path
 from app.documents.storage import FileStore
 from app.maintenance.gate import MaintenanceGate
-from app.persistence.database import Database
+from app.persistence.database import DatabaseManager
 from app.persistence.schema import expected_schema_heads
 from app.readiness import check_readiness
 from app.settings import Settings
 settings = Settings()
-database = Database(settings.database_url.get_secret_value())
+database = DatabaseManager(settings.database_url.get_secret_value())
 staged = None
 published = None
 store = FileStore(settings.files_dir, max_bytes=settings.max_file_bytes)
@@ -451,12 +451,12 @@ print(json.dumps({'ok': True}))
 """
 
 
-class Controller:
+class ReleaseController:
     """可注入Docker runner和维护门禁，方便验证失败时仍保持停写。"""
 
     def __init__(
         self,
-        configuration: Configuration,
+        configuration: ReleaseSettings,
         image_tag: str,
         commit_sha: str,
         build_number: str,
@@ -466,7 +466,7 @@ class Controller:
         data: Path = Path("/app/data"),
         tls: Path = Path("/tls"),
         root: Path = ROOT,
-        runner: Runner | None = None,
+        runner: DockerRunner | None = None,
         gate=None,
     ):
         if (
@@ -484,7 +484,7 @@ class Controller:
         self.release_id = f"{build_number}-{commit_sha[:12]}"
         self.state, self.backups, self.data, self.root = state, backups, data, root
         self.tls = tls
-        self.runner, self.gate = runner or Runner(), gate
+        self.runner, self.gate = runner or DockerRunner(), gate
         self.journal: dict = {}
         self.compose_command: list[str] = []
 
@@ -955,8 +955,8 @@ def main() -> int:
             return 0
         if not all((arguments.image_tag, arguments.commit_sha, arguments.build_number)):
             raise ReleaseError("missing_release_identity")
-        configuration = Configuration.read(sys.stdin.buffer.read(MAX_ENV_BYTES + 1))
-        controller = Controller(
+        configuration = ReleaseSettings.read(sys.stdin.buffer.read(MAX_ENV_BYTES + 1))
+        controller = ReleaseController(
             configuration, arguments.image_tag, arguments.commit_sha, arguments.build_number
         )
 

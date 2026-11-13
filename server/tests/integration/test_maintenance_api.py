@@ -9,7 +9,7 @@ from pydantic import SecretStr
 from sqlalchemy import func, select
 
 from app.main import create_app
-from app.persistence.models import AuthSession, CommandRecord, StoredFile
+from app.persistence.models import AuthSessionDO, CommandRecordDO, StoredFileDO
 from app.security.admin import initialize_administrator
 from app.security.passwords import new_session_token
 from app.settings import Settings
@@ -63,10 +63,10 @@ def test_maintenance_blocks_http_writers_without_partial_files(postgres_database
             assert response.json()["error"]["code"] == "maintenance"
         assert not settings.files_dir.exists()
         with postgres_database.sessions() as session:
-            assert session.scalar(select(func.count()).select_from(CommandRecord)) == 0
-            assert session.scalar(select(func.count()).select_from(StoredFile)) == 0
-            assert session.scalar(select(func.count()).select_from(AuthSession)) == 1
-            assert session.scalar(select(AuthSession.revoked_at)) is None
+            assert session.scalar(select(func.count()).select_from(CommandRecordDO)) == 0
+            assert session.scalar(select(func.count()).select_from(StoredFileDO)) == 0
+            assert session.scalar(select(func.count()).select_from(AuthSessionDO)) == 1
+            assert session.scalar(select(AuthSessionDO.revoked_at)) is None
 
         with gate.exclusive():
             gate.set_maintenance(False)

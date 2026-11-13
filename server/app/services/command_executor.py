@@ -14,15 +14,15 @@ from sqlalchemy.orm import Session, SessionTransaction
 
 from app.errors import AppError
 from app.maintenance import MaintenanceGate
-from app.persistence.database import Database
-from app.persistence.models import Administrator, CommandRecord
-from app.services.audit import AuditChange, append_audit
+from app.persistence.database import DatabaseManager
+from app.persistence.models import AdministratorDO, CommandRecordDO
+from app.services.audit import AuditChangeDTO, append_audit
 from app.services.commands import _validate_json, command_fingerprint
-from app.services.locks import SourceKey, lock_command, lock_sources
+from app.services.locks import SourceKeyDTO, lock_command, lock_sources
 
 
 @dataclass(frozen=True)
-class CommandResult:
+class CommandResultDTO:
     """命令的成功JSON结果；replayed由执行器决定，不由业务回调决定。"""
 
     status_code: int
@@ -38,12 +38,12 @@ class CommandContext:
     command_id: UUID
     actor_id: int
     operation: str
-    _changes: list[AuditChange] = field(default_factory=list, init=False, repr=False)
+    _changes: list[AuditChangeDTO] = field(default_factory=list, init=False, repr=False)
 
-    def audit(self, change: AuditChange) -> None:
+    def audit(self, change: AuditChangeDTO) -> None:
         """累计目标变更，成功提交时与命令记录一起保存。"""
-        if not isinstance(change, AuditChange):
-            raise ValueError("审计变更必须是AuditChange")
+        if not isinstance(change, AuditChangeDTO):
+            raise ValueError("审计变更必须是AuditChangeDTO")
         self._changes.append(change)
 
     def expect_version(self, actual: int, expected: int) -> None:
@@ -114,10 +114,10 @@ def _notice_ended_transaction(session: _CommandSession, transaction: SessionTran
         session._transaction_violation = True
 
 
-def _normalized_result(result: CommandResult) -> CommandResult:
+def _normalized_result(result: CommandResultDTO) -> CommandResultDTO:
     """在提交前校验响应，并复制JSON数据，避免返回业务持有的可变对象。"""
-    if not isinstance(result, CommandResult):
-        raise ValueError("业务回调必须返回CommandResult")
+    if not isinstance(result, CommandResultDTO):
+        raise ValueError("业务回调必须返回CommandResultDTO")
     if type(result.status_code) is not int or not 200 <= result.status_code < 300:
         raise ValueError("只允许保存2xx成功结果")
     if result.status_code in (204, 205) and result.body is not None:
@@ -130,7 +130,7 @@ def _normalized_result(result: CommandResult) -> CommandResult:
         body = json.loads(encoded)
     except (RecursionError, UnicodeError) as error:
         raise ValueError("命令结果无法转换为有效的UTF-8 JSON") from error
-    return CommandResult(status_code=result.status_code, body=body, replayed=False)
+    return CommandResultDTO(status_code=result.status_code, body=body, replayed=False)
 
 
 class CommandExecutor:
@@ -142,7 +142,7 @@ class CommandExecutor:
 
     def __init__(
         self,
-        database: Database,
+        database: DatabaseManager,
         lock_timeout_ms: int = 3000,
         max_attempts: int = 3,
         gate: MaintenanceGate | None = None,
@@ -163,10 +163,10 @@ class CommandExecutor:
         operation: str,
         payload: dict[str, object],
         actor_id: int,
-        handler: Callable[[CommandContext], CommandResult],
-        sources: Sequence[SourceKey] = (),
+        handler: Callable[[CommandContext], CommandResultDTO],
+        sources: Sequence[SourceKeyDTO] = (),
         reason: str | None = None,
-    ) -> CommandResult:
+    ) -> CommandResultDTO:
         """同ID同内容重放，同ID不同内容冲突，失败不保存成功记录。"""
         if not isinstance(command_id, UUID):
             raise ValueError("命令ID必须是UUID")
@@ -175,7 +175,7 @@ class CommandExecutor:
         if not isinstance(payload, dict):
             raise ValueError("请求内容必须是字典")
         # 公共原因也是本次操作的依据。先按审计契约验证，再和业务内容共同参与指纹。
-        checked_reason = AuditChange("command", str(command_id), reason=reason).reason
+        checked_reason = AuditChangeDTO("command", str(command_id), reason=reason).reason
         fingerprint = command_fingerprint(operation, {"payload": payload, "reason": checked_reason})
         if len(operation) > 128:
             raise ValueError("业务操作名称不能超过128字符")
@@ -210,10 +210,10 @@ class CommandExecutor:
         operation: str,
         fingerprint: str,
         actor_id: int,
-        handler: Callable[[CommandContext], CommandResult],
-        sources: Sequence[SourceKey],
+        handler: Callable[[CommandContext], CommandResultDTO],
+        sources: Sequence[SourceKeyDTO],
         reason: str | None,
-    ) -> CommandResult:
+    ) -> CommandResultDTO:
         engine = self.database.engine
         if engine is None:
             raise AppError(503, "database_not_configured", "数据库尚未配置")
@@ -222,13 +222,13 @@ class CommandExecutor:
         with _CommandSession(bind=bind, expire_on_commit=False) as session:
             with session.begin() as transaction:
                 lock_command(session, command_id, timeout_ms=self.lock_timeout_ms)
-                if session.get(Administrator, actor_id) is None:
+                if session.get(AdministratorDO, actor_id) is None:
                     raise AppError(403, "actor_not_found", "操作者不存在")
-                stored = session.get(CommandRecord, command_id)
+                stored = session.get(CommandRecordDO, command_id)
                 if stored is not None:
                     if stored.operation != operation or stored.request_fingerprint != fingerprint:
                         raise AppError(409, "command_conflict", "同一命令ID不能用于不同请求")
-                    result = CommandResult(
+                    result = CommandResultDTO(
                         stored.response_status, stored.response_body, replayed=True
                     )
                 else:
@@ -246,7 +246,7 @@ class CommandExecutor:
                     if body is None and result.status_code not in (204, 205):
                         body = JSON.NULL
                     session.add(
-                        CommandRecord(
+                        CommandRecordDO(
                             command_id=command_id,
                             operation=operation,
                             request_fingerprint=fingerprint,
@@ -259,7 +259,7 @@ class CommandExecutor:
                         command_id=command_id,
                         actor_id=actor_id,
                         operation=operation,
-                        change=AuditChange(
+                        change=AuditChangeDTO(
                             target_type="command",
                             target_id=str(command_id),
                             reason=reason,

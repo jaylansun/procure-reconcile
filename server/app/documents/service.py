@@ -12,13 +12,13 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.orm import sessionmaker
 
-from app.documents.storage import FileStore, StagedFile, StorageError
+from app.documents.storage import FileStore, StagedFileDTO, StorageError
 from app.errors import AppError
-from app.persistence.database import Database
-from app.persistence.models import StoredFile
-from app.services.audit import AuditChange
-from app.services.command_executor import CommandContext, CommandExecutor, CommandResult
-from app.services.locks import SourceKey, lock_sources
+from app.persistence.database import DatabaseManager
+from app.persistence.models import StoredFileDO
+from app.services.audit import AuditChangeDTO
+from app.services.command_executor import CommandContext, CommandExecutor, CommandResultDTO
+from app.services.locks import SourceKeyDTO, lock_sources
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +54,7 @@ def _media_type(filename: str) -> str:
     return media_type
 
 
-def _metadata(row: StoredFile) -> dict[str, object]:
+def _metadata(row: StoredFileDO) -> dict[str, object]:
     """只返回公开标识与元数据，不返回物理路径或操作者秘密。"""
     return {
         "file_id": str(row.file_id),
@@ -78,7 +78,9 @@ def _storage_error(error: StorageError, *, reading: bool = False) -> AppError:
 class FileService:
     """以PG内容锁保护对象引用与回收，调用方仍须finally discard暂存文件。"""
 
-    def __init__(self, database: Database, store: FileStore, executor: CommandExecutor) -> None:
+    def __init__(
+        self, database: DatabaseManager, store: FileStore, executor: CommandExecutor
+    ) -> None:
         self.database = database
         self.store = store
         self.executor = executor
@@ -91,19 +93,19 @@ class FileService:
 
     def import_staged(
         self,
-        staged: StagedFile,
+        staged: StagedFileDTO,
         *,
         command_id: UUID,
         filename: str,
         actor_id: int,
-    ) -> CommandResult:
+    ) -> CommandResultDTO:
         """导入已完成暂存的内容；不消费请求流，不清理调用方的staged。
 
         发布是幂等且受同一内容锁保护的文件副作用；若SQL事务失败，事务结束后
         重新取得内容锁再查引用。补偿失败时宁可保留可回收孤儿，不覆盖原异常。
         """
         media_type = _media_type(filename)
-        if not isinstance(staged, StagedFile) or type(staged.size_bytes) is not int:
+        if not isinstance(staged, StagedFileDTO) or type(staged.size_bytes) is not int:
             raise AppError(422, "invalid_file", "暂存文件信息不正确")
         if staged.size_bytes <= 0:
             raise AppError(422, "empty_file", "不能导入空文件")
@@ -113,14 +115,14 @@ class FileService:
             "original_name": filename,
             "media_type": media_type,
         }
-        source = SourceKey("file-content", staged.sha256)
+        source = SourceKeyDTO("file-content", staged.sha256)
         publish_attempted = False
 
-        def import_content(context: CommandContext) -> CommandResult:
+        def import_content(context: CommandContext) -> CommandResultDTO:
             """在命令执行器持有内容锁的事务中发布对象并保存唯一引用。"""
             nonlocal publish_attempted
             row = context.session.scalar(
-                select(StoredFile).where(StoredFile.sha256 == staged.sha256)
+                select(StoredFileDO).where(StoredFileDO.sha256 == staged.sha256)
             )
             reused = row is not None
             if row is not None:
@@ -129,7 +131,7 @@ class FileService:
                 # 标记放在调用前，连已创建目录项但同步失败的情况也走安全补偿。
                 publish_attempted = True
                 stored = self.store.publish(staged)
-                row = StoredFile(
+                row = StoredFileDO(
                     sha256=stored.sha256,
                     size_bytes=stored.size_bytes,
                     original_name=filename,
@@ -139,7 +141,7 @@ class FileService:
                 context.session.add(row)
                 context.session.flush()
             context.audit(
-                AuditChange(
+                AuditChangeDTO(
                     target_type="file",
                     target_id=str(row.file_id),
                     details={
@@ -149,7 +151,7 @@ class FileService:
                     },
                 )
             )
-            return CommandResult(200 if reused else 201, _metadata(row))
+            return CommandResultDTO(200 if reused else 201, _metadata(row))
 
         try:
             return self.executor.execute(
@@ -167,7 +169,7 @@ class FileService:
                 raise _storage_error(error) from None
             raise
 
-    def _verify_existing(self, row: StoredFile, expected_size: int) -> None:
+    def _verify_existing(self, row: StoredFileDO, expected_size: int) -> None:
         """复用元数据前验证物理内容及大小，损坏不能被去重掩盖。"""
         if row.size_bytes != expected_size:
             raise AppError(503, "file_unavailable", "文件暂不可用，请检查存储")
@@ -195,7 +197,7 @@ class FileService:
         if not isinstance(file_id, UUID):
             raise AppError(422, "invalid_file_id", "文件标识不正确")
         with self._sessions()() as session:
-            row = session.get(StoredFile, file_id)
+            row = session.get(StoredFileDO, file_id)
             if row is None:
                 raise AppError(404, "file_not_found", "文件不存在")
             return _metadata(row)
@@ -210,11 +212,11 @@ class FileService:
         with self._sessions().begin() as session:
             lock_sources(
                 session,
-                [SourceKey("file-content", digest)],
+                [SourceKeyDTO("file-content", digest)],
                 timeout_ms=self.executor.lock_timeout_ms,
             )
             referenced = session.scalar(
-                select(StoredFile.file_id).where(StoredFile.sha256 == digest)
+                select(StoredFileDO.file_id).where(StoredFileDO.sha256 == digest)
             )
             if referenced is not None:
                 return False

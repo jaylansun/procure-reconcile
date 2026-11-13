@@ -15,11 +15,15 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
-class Base(DeclarativeBase):
+class BaseDO(DeclarativeBase):
+    """数据库持久化对象的公共映射基类。"""
+
     pass
 
 
-class Administrator(Base):
+class AdministratorDO(BaseDO):
+    """管理员持久化对象，映射administrators表。"""
+
     __tablename__ = "administrators"
     __table_args__ = (CheckConstraint("id = 1", name="ck_single_administrator"),)
 
@@ -29,7 +33,9 @@ class Administrator(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
-class AuthSession(Base):
+class AuthSessionDO(BaseDO):
+    """登录会话持久化对象，映射auth_sessions表。"""
+
     __tablename__ = "auth_sessions"
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
@@ -43,7 +49,7 @@ class AuthSession(Base):
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
-class CommandRecord(Base):
+class CommandRecordDO(BaseDO):
     """保存已成功执行的业务命令，以及后续重试时可重放的响应。
 
     同一次操作使用同一个 command_id，不同操作可以产生相同的请求指纹。
@@ -81,7 +87,7 @@ class CommandRecord(Base):
     )
 
 
-class AuditEvent(Base):
+class AuditEventDO(BaseDO):
     """随业务事务一起提交的追加审计记录，重放命令不重复追加。"""
 
     __tablename__ = "audit_events"
@@ -124,7 +130,7 @@ class AuditEvent(Base):
     )
 
 
-class StoredFile(Base):
+class StoredFileDO(BaseDO):
     """不可变原件的数据库引用；物理路径只由内容摘要和服务端根目录推导。"""
 
     __tablename__ = "stored_files"
@@ -145,4 +151,52 @@ class StoredFile(Base):
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+class SupplierDO(BaseDO):
+    """供应商基础资料，后续单据通过稳定ID关联。"""
+
+    __tablename__ = "suppliers"
+    __table_args__ = (
+        CheckConstraint(
+            "name ~ '[^[:space:]]'",
+            name="ck_supplier_name_nonblank",
+        ),
+        CheckConstraint(
+            "version >= 1",
+            name="ck_supplier_version_positive",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(
+        primary_key=True,
+        default=uuid4,
+    )
+
+    # 名称不承担身份识别职责，同名供应商通过不同ID区分。
+    name: Mapped[str] = mapped_column(
+        String(200),
+        nullable=False,
+    )
+    contact_info: Mapped[str | None] = mapped_column(
+        String(2000),
+        nullable=True,
+    )
+
+    # 每次成功修改递增，防止旧页面覆盖新资料。
+    version: Mapped[int] = mapped_column(
+        BigInteger,
+        nullable=False,
+        default=1,
+        server_default="1",
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
     )

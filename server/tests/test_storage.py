@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from app.documents.storage import FileStore, FileTooLarge, StagedFile, StorageError
+from app.documents.storage import FileStore, FileTooLargeError, StagedFileDTO, StorageError
 
 
 @pytest.fixture
@@ -176,7 +176,7 @@ def test_limit_is_enforced_during_stream_and_boundary_is_allowed(tmp_path: Path)
     staged = store.stage([b"ab", b"cd"])
     assert staged.size_bytes == 4
     store.discard(staged)
-    with pytest.raises(FileTooLarge) as error:
+    with pytest.raises(FileTooLargeError) as error:
         store.stage([b"ab", b"cde"])
     assert error.value.code == "file_too_large"
     assert list((store.root / ".staging").iterdir()) == []
@@ -334,7 +334,7 @@ def test_foreign_and_traversal_staged_paths_cannot_be_deleted(
     other = FileStore(tmp_path / "other").stage([b"keep"])
     traversal = store.root / ".staging" / ".." / "outside"
     for path in (outside, other.path, traversal):
-        staged = StagedFile(path, hashlib.sha256(b"keep").hexdigest(), 4)
+        staged = StagedFileDTO(path, hashlib.sha256(b"keep").hexdigest(), 4)
         for operation in (store.discard, store.publish):
             with pytest.raises(StorageError) as error:
                 operation(staged)

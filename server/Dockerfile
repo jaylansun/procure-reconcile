@@ -16,6 +16,7 @@ RUN uv sync --locked --no-install-project
 COPY server/tests ./tests
 COPY scripts/deploy /scripts/deploy
 COPY deploy /deploy
+COPY contracts /contracts
 RUN chown -R procure:procure /app
 USER procure
 CMD ["python", "-m", "pytest", "-q", "--tb=short"]

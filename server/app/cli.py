@@ -8,7 +8,7 @@ from app.documents.service import FileService
 from app.documents.storage import FileStore, StorageError
 from app.errors import AppError
 from app.maintenance import MaintenanceGate
-from app.persistence.database import Database
+from app.persistence.database import DatabaseManager
 from app.security.admin import initialize_administrator
 from app.services.command_executor import CommandExecutor
 from app.settings import Settings
@@ -40,7 +40,7 @@ def main() -> int:
     configured = Settings()
     if not configured.instance_id or not configured.database_url:
         parser.error("请配置稳定PROCURE_INSTANCE_ID和PROCURE_DATABASE_URL")
-    database = Database(configured.database_url.get_secret_value())
+    database = DatabaseManager(configured.database_url.get_secret_value())
     gate = MaintenanceGate(
         getattr(configured, "maintenance_dir", None) or configured.files_dir.parent / "maintenance"
     )

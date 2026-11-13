@@ -7,10 +7,10 @@ from fastapi import Depends, Request, Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.services.command_executor import CommandExecutor, CommandResult
+from app.services.command_executor import CommandExecutor, CommandResultDTO
 
 
-class CommandInput(BaseModel):
+class CommandDTO(BaseModel):
     """业务输入继承此类，保留客户端重试时不变的命令编号。"""
 
     model_config = ConfigDict(extra="forbid")
@@ -21,7 +21,7 @@ class CommandInput(BaseModel):
         return self.model_dump(mode="json", exclude={"command_id"})
 
 
-class VersionedCommandInput(CommandInput):
+class VersionedCommandDTO(CommandDTO):
     """变更操作继承此类，读取并锁定来源后检查预期版本。"""
 
     expected_version: int = Field(strict=True, ge=0)
@@ -35,7 +35,7 @@ def get_command_executor(request: Request) -> CommandExecutor:
 CommandExecutorDep = Annotated[CommandExecutor, Depends(get_command_executor)]
 
 
-def command_response(result: CommandResult) -> Response:
+def command_response(result: CommandResultDTO) -> Response:
     """第一次执行与重放使用相同状态和内容，只增加重放标记。"""
     headers = {
         "X-Command-Replayed": str(result.replayed).lower(),

@@ -10,7 +10,9 @@ CENT = Decimal("0.01")
 
 
 @dataclass(frozen=True)
-class LineAmounts:
+class LineAmountsDTO:
+    """行金额计算结果的内部传输对象，携带未税额、税额和含税额。"""
+
     net: Decimal
     tax: Decimal
     gross: Decimal
@@ -21,7 +23,7 @@ def calculate_line(
     unit_price: str | Decimal,
     tax_percent: str | Decimal,
     basis: Literal["tax_inclusive", "tax_exclusive"],
-) -> LineAmounts:
+) -> LineAmountsDTO:
     q = exact_decimal(quantity, 6)
     p = exact_decimal(unit_price, 6)
     percentage = exact_decimal(tax_percent, 4)
@@ -46,10 +48,10 @@ def calculate_line(
             net = rounded(q * p)
             tax = rounded(net * rate)
             gross = net + tax
-        return LineAmounts(net=net, tax=tax, gross=gross)
+        return LineAmountsDTO(net=net, tax=tax, gross=gross)
 
 
-def sum_lines(lines: Iterable[LineAmounts]) -> LineAmounts:
+def sum_lines(lines: Iterable[LineAmountsDTO]) -> LineAmountsDTO:
     rows = list(lines)
     with localcontext() as context:
         context.prec = max(
@@ -61,7 +63,7 @@ def sum_lines(lines: Iterable[LineAmounts]) -> LineAmounts:
             + len(str(len(rows)))
             + 10,
         )
-        return LineAmounts(
+        return LineAmountsDTO(
             net=sum((row.net for row in rows), Decimal("0.00")),
             tax=sum((row.tax for row in rows), Decimal("0.00")),
             gross=sum((row.gross for row in rows), Decimal("0.00")),

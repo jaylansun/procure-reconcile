@@ -32,7 +32,7 @@ def maintenance(monkeypatch, tmp_path):
     service.cleanup_orphans.return_value = 2
     service_factory = Mock(return_value=service)
     monkeypatch.setattr(cli, "Settings", settings)
-    monkeypatch.setattr(cli, "Database", database_factory)
+    monkeypatch.setattr(cli, "DatabaseManager", database_factory)
     monkeypatch.setattr(cli, "FileStore", store_factory)
     monkeypatch.setattr(cli, "CommandExecutor", executor_factory)
     monkeypatch.setattr(cli, "FileService", service_factory)

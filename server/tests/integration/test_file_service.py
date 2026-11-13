@@ -11,10 +11,10 @@ import pytest
 from sqlalchemy import event, func, select, update
 
 from app.documents.service import FileService
-from app.documents.storage import FileStore, StagedFile, StorageError
+from app.documents.storage import FileStore, StagedFileDTO, StorageError
 from app.errors import AppError
-from app.persistence.database import Database
-from app.persistence.models import AuditEvent, CommandRecord, StoredFile
+from app.persistence.database import DatabaseManager
+from app.persistence.models import AuditEventDO, CommandRecordDO, StoredFileDO
 from app.security.admin import initialize_administrator
 from app.security.passwords import new_session_token
 from app.services.command_executor import CommandContext, CommandExecutor
@@ -23,7 +23,7 @@ pytestmark = pytest.mark.postgres
 
 
 @pytest.fixture
-def file_service(postgres_database: Database, tmp_path: Path) -> FileService:
+def file_service(postgres_database: DatabaseManager, tmp_path: Path) -> FileService:
     """仅使用显式指定的测试库与本次临时文件目录。"""
     initialize_administrator(postgres_database, "files-admin", new_session_token())
     return FileService(
@@ -47,20 +47,20 @@ def upload(
         service.store.discard(staged)
 
 
-def assert_counts(database: Database, *, files: int, commands: int, audits: int) -> None:
+def assert_counts(database: DatabaseManager, *, files: int, commands: int, audits: int) -> None:
     """检查引用、成功命令与审计的提交边界，拒绝半份结果。"""
     assert database.sessions is not None
     with database.sessions() as session:
         for model, expected in (
-            (StoredFile, files),
-            (CommandRecord, commands),
-            (AuditEvent, audits),
+            (StoredFileDO, files),
+            (CommandRecordDO, commands),
+            (AuditEventDO, audits),
         ):
             assert session.scalar(select(func.count()).select_from(model)) == expected
 
 
 def test_success_and_same_command_replay_once(
-    file_service: FileService, postgres_database: Database
+    file_service: FileService, postgres_database: DatabaseManager
 ) -> None:
     """重放返回首次201及完整响应，不重复引用或审计，响应不包含路径。"""
     command_id = uuid4()
@@ -80,7 +80,7 @@ def test_success_and_same_command_replay_once(
     assert str(file_service.store.root) not in str(first.body)
     assert_counts(postgres_database, files=1, commands=1, audits=2)
     with postgres_database.sessions() as session:
-        audit = session.scalar(select(AuditEvent).where(AuditEvent.target_type == "file"))
+        audit = session.scalar(select(AuditEventDO).where(AuditEventDO.target_type == "file"))
         assert audit.details == {
             "sha256": first.body["sha256"],
             "size_bytes": len(b"original file"),
@@ -90,7 +90,7 @@ def test_success_and_same_command_replay_once(
 
 
 def test_different_filename_same_content_reuses_first_metadata(
-    file_service: FileService, postgres_database: Database
+    file_service: FileService, postgres_database: DatabaseManager
 ) -> None:
     """不同命令上传同内容保留首次文件名与媒体类型，新增一次复用审计。"""
     first = upload(file_service, filename="first.pdf")
@@ -104,7 +104,7 @@ def test_different_filename_same_content_reuses_first_metadata(
 
 @pytest.mark.parametrize("changed", ["filename", "content"])
 def test_same_command_changed_filename_or_hash_is_conflict(
-    file_service: FileService, postgres_database: Database, changed: str
+    file_service: FileService, postgres_database: DatabaseManager, changed: str
 ) -> None:
     """同一命令ID的名称或内容变化都返回409，不能发布额外对象。"""
     command_id = uuid4()
@@ -169,7 +169,7 @@ def test_unsafe_names_are_rejected_before_any_database_access(
     tmp_path: Path, filename: str
 ) -> None:
     """路径、控制字符、超长和未确认后缀在事务及发布前就拒绝。"""
-    database = Database(None)
+    database = DatabaseManager(None)
     service = FileService(database, FileStore(tmp_path / "files"), CommandExecutor(database))
     staged = service.store.stage([b"content"])
     try:
@@ -184,7 +184,7 @@ def test_unsafe_names_are_rejected_before_any_database_access(
 
 def test_empty_file_is_rejected_without_database_or_publication(tmp_path: Path) -> None:
     """空文件不是合法导入，服务报422且仍由调用方清理暂存。"""
-    database = Database(None)
+    database = DatabaseManager(None)
     service = FileService(database, FileStore(tmp_path / "files"), CommandExecutor(database))
     staged = service.store.stage([])
     with pytest.raises(AppError) as error:
@@ -195,7 +195,7 @@ def test_empty_file_is_rejected_without_database_or_publication(tmp_path: Path) 
 
 
 def test_concurrent_different_commands_share_one_reference(
-    file_service: FileService, postgres_database: Database
+    file_service: FileService, postgres_database: DatabaseManager
 ) -> None:
     """真实PG内容锁让并发同内容只有一条引用，不覆盖首次元数据。"""
     barrier = threading.Barrier(2)
@@ -217,7 +217,7 @@ def test_concurrent_different_commands_share_one_reference(
 
 
 def test_concurrent_same_command_replays_without_duplicate_audit(
-    file_service: FileService, postgres_database: Database
+    file_service: FileService, postgres_database: DatabaseManager
 ) -> None:
     """同一上传命令的并发重试由命令锁重放，审计仅有首次两条。"""
     barrier, command_id = threading.Barrier(2), uuid4()
@@ -236,12 +236,12 @@ def test_concurrent_same_command_replays_without_duplicate_audit(
 
 
 def test_failure_after_physical_publication_compensates_without_partial_sql(
-    file_service: FileService, postgres_database: Database, monkeypatch: pytest.MonkeyPatch
+    file_service: FileService, postgres_database: DatabaseManager, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """发布后抛错也会重新加锁查引用，再回收已落盘但未提交的对象。"""
     original = file_service.store.publish
 
-    def publish_then_fail(staged: StagedFile):
+    def publish_then_fail(staged: StagedFileDTO):
         """模拟文件已创建但发布返回阶段发生故障。"""
         original(staged)
         raise StorageError("io_error", "sensitive storage path")
@@ -256,7 +256,7 @@ def test_failure_after_physical_publication_compensates_without_partial_sql(
 
 
 def test_callback_failure_after_flush_rolls_back_and_reclaims_object(
-    file_service: FileService, postgres_database: Database, monkeypatch: pytest.MonkeyPatch
+    file_service: FileService, postgres_database: DatabaseManager, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """元数据flush后回调失败，SQL整体回滚且无引用原件被安全回收。"""
 
@@ -273,7 +273,7 @@ def test_callback_failure_after_flush_rolls_back_and_reclaims_object(
 
 
 def test_commit_failure_reclaims_only_after_transaction_exits(
-    file_service: FileService, postgres_database: Database
+    file_service: FileService, postgres_database: DatabaseManager
 ) -> None:
     """提交失败后的新事务才能判断引用，不能在失败事务内直接删除对象。"""
     assert postgres_database.engine is not None
@@ -298,7 +298,7 @@ def test_commit_failure_reclaims_only_after_transaction_exits(
 
 
 def test_ambiguous_postcommit_error_keeps_committed_reference(
-    file_service: FileService, postgres_database: Database, monkeypatch: pytest.MonkeyPatch
+    file_service: FileService, postgres_database: DatabaseManager, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """响应阶段出错但PG已提交时，补偿查到引用后绝不能删除原件。"""
     execute = file_service.executor.execute
@@ -317,7 +317,7 @@ def test_ambiguous_postcommit_error_keeps_committed_reference(
 
 def test_cleanup_failure_preserves_original_error_and_safe_orphan(
     file_service: FileService,
-    postgres_database: Database,
+    postgres_database: DatabaseManager,
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
@@ -326,7 +326,7 @@ def test_cleanup_failure_preserves_original_error_and_safe_orphan(
 
     publish = file_service.store.publish
 
-    def publish_then_fail(staged: StagedFile):
+    def publish_then_fail(staged: StagedFileDTO):
         """先落盘，再报告不应进入日志的底层错误细节。"""
         publish(staged)
         raise RuntimeError("original upload failure")
@@ -348,7 +348,7 @@ def test_cleanup_failure_preserves_original_error_and_safe_orphan(
 
 
 def test_failed_upload_cleanup_cannot_delete_later_committed_reference(
-    file_service: FileService, postgres_database: Database, monkeypatch: pytest.MonkeyPatch
+    file_service: FileService, postgres_database: DatabaseManager, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """失败事务释放锁后另一上传先提交，延迟补偿必须重新查引用并保留原件。"""
     failing_id = uuid4()
@@ -444,7 +444,7 @@ def test_missing_metadata_is_404(file_service: FileService, operation: str) -> N
 
 @pytest.mark.parametrize("damage", ["missing", "hash", "size"])
 def test_missing_corrupt_or_wrong_size_objects_are_503_and_never_deduped(
-    file_service: FileService, postgres_database: Database, damage: str
+    file_service: FileService, postgres_database: DatabaseManager, damage: str
 ) -> None:
     """有元数据但原件缺失、损坏或长度不符时，读取及复用都必须报503。"""
     first = upload(file_service)
@@ -458,7 +458,7 @@ def test_missing_corrupt_or_wrong_size_objects_are_503_and_never_deduped(
         path.write_bytes(b"wrong content")
     else:
         with postgres_database.sessions.begin() as session:
-            session.execute(update(StoredFile).values(size_bytes=999))
+            session.execute(update(StoredFileDO).values(size_bytes=999))
     assert file_service.metadata(file_id) is not None
     for action in (lambda: file_service.open_file(file_id), lambda: upload(file_service)):
         with pytest.raises(AppError) as error:
@@ -468,7 +468,7 @@ def test_missing_corrupt_or_wrong_size_objects_are_503_and_never_deduped(
 
 
 def test_open_file_ends_query_before_touching_object_storage(
-    file_service: FileService, postgres_database: Database, monkeypatch: pytest.MonkeyPatch
+    file_service: FileService, postgres_database: DatabaseManager, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """下载流读取期间不长期占用PG连接，文件句柄由调用方关闭。"""
     uploaded = upload(file_service)
@@ -488,7 +488,7 @@ def test_open_file_ends_query_before_touching_object_storage(
 
 
 def test_publish_limit_failure_maps_to_413(
-    file_service: FileService, postgres_database: Database
+    file_service: FileService, postgres_database: DatabaseManager
 ) -> None:
     """暂存后配置缩小导致发布超限，服务保留413语义且没有半份引用。"""
     staged = file_service.store.stage([b"too large"])

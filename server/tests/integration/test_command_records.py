@@ -13,8 +13,8 @@ from sqlalchemy import JSON, delete, func, inspect, select, text
 from sqlalchemy.exc import DBAPIError, IntegrityError, SAWarning
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.persistence.database import Database
-from app.persistence.models import CommandRecord
+from app.persistence.database import DatabaseManager
+from app.persistence.models import CommandRecordDO
 from app.persistence.schema import expected_schema_heads
 from app.readiness import check_readiness
 from app.security.admin import initialize_administrator
@@ -25,20 +25,20 @@ pytestmark = pytest.mark.postgres
 
 
 @pytest.fixture
-def command_sessions(postgres_database: Database) -> Iterator[sessionmaker[Session]]:
+def command_sessions(postgres_database: DatabaseManager) -> Iterator[sessionmaker[Session]]:
     """复用专用测试库保护，在本模块每个用例前后清理命令记录。"""
     factory = postgres_database.sessions
     assert factory is not None
     with factory.begin() as session:
-        session.execute(delete(CommandRecord))
+        session.execute(delete(CommandRecordDO))
     try:
         yield factory
     finally:
         with factory.begin() as session:
-            session.execute(delete(CommandRecord))
+            session.execute(delete(CommandRecordDO))
 
 
-def make_record(**overrides: object) -> CommandRecord:
+def make_record(**overrides: object) -> CommandRecordDO:
     """由测试调用方提供命令ID，默认构造一条成功的JSON响应记录。"""
     values: dict[str, object] = {
         "command_id": uuid4(),
@@ -48,7 +48,7 @@ def make_record(**overrides: object) -> CommandRecord:
         "response_body": {"message": "登记成功", "quantity": "1.000000"},
     }
     values.update(overrides)
-    return CommandRecord(**values)
+    return CommandRecordDO(**values)
 
 
 def test_supplied_id_and_original_operation_round_trip(
@@ -60,7 +60,7 @@ def test_supplied_id_and_original_operation_round_trip(
     with command_sessions.begin() as session:
         session.add(make_record(command_id=command_id, operation=operation))
     with command_sessions() as session:
-        stored = session.get(CommandRecord, command_id)
+        stored = session.get(CommandRecordDO, command_id)
         assert stored is not None
         assert stored.command_id == command_id
         assert stored.operation == operation
@@ -70,7 +70,7 @@ def test_missing_command_id_is_not_generated_automatically(
     command_sessions: sessionmaker[Session],
 ) -> None:
     """省略命令ID必须由数据库拒绝，不能在写入时悄悄生成新ID。"""
-    record = CommandRecord(
+    record = CommandRecordDO(
         operation="receipt.register",
         request_fingerprint="a" * 64,
         response_status=204,
@@ -96,8 +96,8 @@ def test_duplicate_id_is_rejected_without_replacing_original_result(
         session.add(make_record(command_id=command_id, response_body={"message": "不应覆盖"}))
     assert error.value.orig.sqlstate == "23505"
     with command_sessions() as session:
-        assert session.scalar(select(func.count()).select_from(CommandRecord)) == 1
-        stored = session.get(CommandRecord, command_id)
+        assert session.scalar(select(func.count()).select_from(CommandRecordDO)) == 1
+        stored = session.get(CommandRecordDO, command_id)
         assert stored is not None
         assert stored.response_body == {"message": "登记成功", "quantity": "1.000000"}
 
@@ -110,7 +110,7 @@ def test_different_ids_may_have_the_same_fingerprint(
     with command_sessions.begin() as session:
         session.add_all([make_record(command_id=first_id), make_record(command_id=second_id)])
     with command_sessions() as session:
-        records = session.scalars(select(CommandRecord)).all()
+        records = session.scalars(select(CommandRecordDO)).all()
         assert {record.command_id for record in records} == {first_id, second_id}
         assert {record.request_fingerprint for record in records} == {"a" * 64}
 
@@ -154,7 +154,7 @@ def test_success_status_boundaries_are_allowed(
     with command_sessions.begin() as session:
         session.add(make_record(command_id=command_id, response_status=status))
     with command_sessions() as session:
-        stored = session.get(CommandRecord, command_id)
+        stored = session.get(CommandRecordDO, command_id)
         assert stored is not None
         assert stored.response_status == status
 
@@ -170,7 +170,7 @@ def test_chinese_nested_response_round_trip(command_sessions: sessionmaker[Sessi
     with command_sessions.begin() as session:
         session.add(make_record(command_id=command_id, response_body=body))
     with command_sessions() as session:
-        stored = session.get(CommandRecord, command_id)
+        stored = session.get(CommandRecordDO, command_id)
         assert stored is not None
         assert stored.response_body == body
 
@@ -190,10 +190,10 @@ def test_no_content_and_json_null_are_distinct_in_postgresql(
     with command_sessions() as session:
         rows = session.execute(
             select(
-                CommandRecord.command_id,
-                CommandRecord.response_body,
-                CommandRecord.response_body.is_(None).label("is_sql_null"),
-                func.jsonb_typeof(CommandRecord.response_body).label("json_type"),
+                CommandRecordDO.command_id,
+                CommandRecordDO.response_body,
+                CommandRecordDO.response_body.is_(None).label("is_sql_null"),
+                func.jsonb_typeof(CommandRecordDO.response_body).label("json_type"),
             )
         ).mappings()
         stored = {row["command_id"]: row for row in rows}
@@ -234,11 +234,11 @@ def test_transaction_rollback_leaves_no_success_record(
         session.flush()
         raise RuntimeError("模拟事务失败")
     with command_sessions() as session:
-        assert session.get(CommandRecord, command_id) is None
+        assert session.get(CommandRecordDO, command_id) is None
 
 
 def test_missing_command_table_is_not_ready_even_with_correct_version_and_admin(
-    postgres_database: Database, command_sessions: sessionmaker[Session]
+    postgres_database: DatabaseManager, command_sessions: sessionmaker[Session]
 ) -> None:
     """版本与管理员有效但命令表缺失时不能误报就绪，结束后恢复表名。"""
     engine = postgres_database.engine
@@ -268,11 +268,11 @@ def test_missing_command_table_is_not_ready_even_with_correct_version_and_admin(
             )
     assert check_readiness(settings, postgres_database).ready is True
     with command_sessions() as session:
-        assert session.scalar(select(func.count()).select_from(CommandRecord)) == 0
+        assert session.scalar(select(func.count()).select_from(CommandRecordDO)) == 0
 
 
 def test_command_migration_downgrade_and_upgrade_preserve_auth_tables(
-    postgres_database: Database, command_sessions: sessionmaker[Session]
+    postgres_database: DatabaseManager, command_sessions: sessionmaker[Session]
 ) -> None:
     """只在受保护测试库降级；不论断言成败，最终恢复当前head。"""
     engine = postgres_database.engine

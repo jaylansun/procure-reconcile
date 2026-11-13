@@ -1,6 +1,8 @@
 # 执行日志
 
-当前部署概况（2026-11-02）：共享Jenkins中的独立采购任务已完成首次发布，构建#1为SUCCESS，源码aeb4994b0cfa488bd08ad761ede075add82a19b4。正式API、PG与HTTPS网关已运行，Mac经独立CA验证HTTPS登录和原件上传下载。最新构建与配套备份记录以 http://127.0.0.1:8080/job/procure-reconcile/ 为准；下方早期条目保留当时状态。
+当前源码进展（2026-11-13）：用户手写供应商业务已接入0004_suppliers迁移及新增、修改、详情、分页四个后端接口，独立测试PG完整511项通过。接续D09单位基础资料、物料与规格及换算，具体实现入口和联调步骤见backend-business-guide.md。
+
+当前部署概况（2026-11-03）：共享Jenkins中的独立采购任务最近构建#2为SUCCESS，源码69f446da943f9554e528efaf2cb0d558c4ea88c8。正式API、PG与HTTPS网关已运行，服务地址已更新为https://192.168.1.42:18443；管理员凭据按用户指定设置，本机及Jenkins独立部署凭据已同步。最新构建与配套备份记录以 http://127.0.0.1:8080/job/procure-reconcile/ 为准；下方早期条目保留当时状态。
 
 ## 2026-10-16：首个工程与认证基础版本
 
@@ -219,3 +221,61 @@ Mac通过公开CA证书做正常验链和主机名校验，HTTPS真实登录、�
 首次本机容器预检曾发现Compose create不支持--no-deps，修正为create backend client后完整CI通过；未触碰正式服务。Docker Hub一次认证DNS超时经有限的镜像拉取重试恢复，未更改共享Docker代理或重启Jenkins/DevPilot。
 
 继续加强发布门禁：候选阶段新增gateway HTTPS检查，经独立CA验证LAN主机名，失败不开门；恢复PG和CI/新正式PG健康检测使用TCP，避免初始化临时Unix socket误报就绪。新增5项TLS故障/顺序回归，控制器35项测试及CI编排12项通过。此版本用于再次从Jenkins发布并验证已保存数据持久性；实际最新结果见Jenkins构建及发布卷记录，不预报尚未完成的验收。
+
+
+## 2026-11-03：按用户指定调整正式管理员凭据
+
+按用户要求设置正式管理员账号admin及其指定密码。通过一次性本项目维护容器持有统一发布锁，启用维护并取得独占写入锁后，在同一PG事务更新Argon2密码哈希、撤销旧会话；本机忽略提交的账号记录、部署env和Jenkins独立Secret file同步完成。未改动开发账号、业务数据或DevPilot资源，没有重新构建或发布镜像。
+
+验证：正式本机诊断入口新密码登录及工作台访问成功，旧密码和旧会话返回401；私有记录权限600。维护结束后服务恢复就绪。本机局域网IP已变为192.168.1.42，网关原宿主绑定仍为192.168.1.88，原地址从本机连接超时；是否更新绑定和证书已向用户询问，本次尚未改动访问地址。
+
+
+## 2026-11-03：用户确认更新局域网地址与服务器证书
+
+用户确认将正式地址由192.168.1.88更新为192.168.1.42，端口仍为18443。使用原根CA和原服务器私钥重签包含当前IP的397天服务器证书，未改变系统信任设置；仅原子替换TLS卷中的公开server.crt。持有统一发布锁，仅重建gateway，API及PG容器ID前后相同。配置版本更新为production-0002，本机部署env、账号记录、独立Jenkins Secret file与操作文档同步。
+
+验证：Mac从新地址严格校验CA链及IP SAN后，HTTPS存活、就绪、账号登录、工作台、既有验收原件下载及SHA256核对、退出全部成功；网关宿主绑定已改为192.168.1.42:18443。沿用原CA，已信任它的客户端只需更新连接地址。未重新构建镜像或触发Jenkins，DevPilot任务仍为#45 SUCCESS。配置维护结果单独保存在发布状态卷current-configuration.json及configuration-history目录，保留原current.json中的构建#2发布快照。
+
+
+## 2026-11-03：用户授权完成当前Mac的CA信任
+
+用户要求直接完成桌面连接所需证书配置。核对本项目根CA的SHA256指纹后，将公开ca.crt导入当前用户login.keychain-db，并设置SSL用途的trustRoot；未导入私钥，未修改其他设备或系统级根证书库。
+
+验证：导入前，服务证书经本机钥匙串校验返回CSSMERR_TP_NOT_TRUSTED；导入后，security通过默认钥匙串校验本地服务证书及真实HTTPS地址均成功。系统curl在未指定CA文件、未关闭证书校验的情况下，访问https://192.168.1.42:18443/health返回alive。当前未运行桌面客户端，下一次启动会读取新的系统信任；本次未将系统HTTPS验证表述为桌面UI登录验收。
+
+
+## 2026-11-03：核验共享Jenkins实际网页登录
+
+用户反馈登录凭据错误后，核对本机600私有凭据记录与旧说明一致；Basic whoAmI认证成功，Jenkins本地安全域密码校验和authenticate2均通过。随后在ego-browser中打开http://127.0.0.1:8080/login，通过实际用户名／密码表单登录成功，工作台显示DevPilot及procure-reconcile任务。未复现用户浏览器的登录失败，因此未重置账号、修改安全配置或重启共享Jenkins；保留已登录浏览器页面供用户继续操作。本次不在执行日志记录密码。
+
+
+## 2026-11-06：按真实用途统一后端类名后缀
+
+用户要求按QO、DTO、VO等后缀表达类的实际职责，并在后续开发持续遵守。统一查询模型使用QO，写命令输入和内部传输使用DTO，接口展示输出使用VO，数据库映射使用PO。已将SupplierData/CreateSupplierInput/UpdateSupplierInput调整为SupplierDTO/CreateSupplierDTO/UpdateSupplierDTO，认证及文件返回模型使用LoginVO、SessionVO、SystemVO、FileMetadataVO等名称，持久化对象使用SupplierPO、AdministratorPO、StoredFilePO等名称。数据类、导入、注解、测试、Alembic环境入口和部署内嵌Python引用同步更新，基础设施采用DatabaseManager、DockerRunner、ReleaseController等职责名称。
+
+AGENTS.md保存后续命名要求，后端接入指南和server/README同步示例及公共类名称。真实路由重新导出OpenAPI，增加模型后缀、存档契约一致性和部署内嵌导入回归检查，测试镜像包含契约文件以支持相同验证。
+
+验证使用uv锁定环境和独立procure_test PG。全套481项测试实际执行，480项通过，1项失败。唯一失败为原有供应商模型尚无对应迁移，元数据检测报告待新增suppliers表。重构前已保存包含该表的ORM元数据，重构后六张表的DDL和索引逐项对比相同。OpenAPI的路径和请求/响应字段在归一化类名并计入新增中文模型说明后与重构前一致。Ruff对其余已完成文件全部通过，完整检查仍报告用户供应商业务文件原有的未完成create_supplier函数签名。前述两项作为现有手写进度记录。测试结束后将独立测试PG恢复为原来的停止状态。
+
+
+## 2026-11-06：按用户约定统一数据库映射为DO
+
+用户进一步明确数据库映射使用DO（Data Object）后缀。将上一条记录中采用的BasePO、AdministratorPO、AuthSessionPO、CommandRecordPO、AuditEventPO、StoredFilePO、SupplierPO全部调整为对应DO名称。导入、类型注解、Alembic环境入口、部署内嵌Python、测试及当前接入文档同步更新，AGENTS.md固定QO/DTO/VO/DO用途约定，并新增实际ORM注册类的DO后缀回归检查。
+
+DO调整后的整套后端验证实际执行482项，481项通过，1项仍为供应商模型缺少配套迁移导致的原有元数据差异，零跳过。六张表DDL和索引比对通过，OpenAPI存档与实际路由一致，其余已完成文件的Ruff检查通过。供应商create_supplier签名仍处于用户手写进度中。测试PG已恢复停止状态。
+
+
+## 2026-11-13：衔接用户完成的供应商手写业务
+
+用户完成供应商新增、修改、详情和列表函数，并明确允许助手仅修正两处错误。移除覆盖SQLAlchemy查询函数的标准库select导入，将更新时间表达式修正为datetime.now(UTC)。业务入口使用用户已有list_supplier函数名。
+
+新增0004_suppliers迁移，建立与SupplierDO一致的字段、默认值和检查约束。增加SupplierListQO、SupplierVO、SupplierListVO及app/suppliers.py HTTP适配，注册四个认证接口。写入通过公共CommandExecutor执行，操作名为suppliers.create和suppliers.update，修改锁定supplier稳定来源并检查路径ID与DTO中的ID一致。查询模型校验分页范围，offset上界对齐PostgreSQL有符号64位整数。VO沿用原件接口的ISO时间字符串表示，新增结果、详情和幂等快照保持一致。就绪检查覆盖供应商表，OpenAPI与当前接入文档同步。
+
+真实独立procure_test数据库中完整511项测试全部通过，零失败、零错误、零跳过，Ruff和git diff --check通过。新增验证覆盖完整提交清空联系信息、同名供应商、版本与审计前后快照、重放和指纹冲突、失败回滚、404/422/401边界、分页与超大偏移量、BIGINT版本上限、来源锁超时、并发修改以及维护期间停写。迁移测试实际回退和重新升级供应商表，验证既有五张表记录保留，原有全量元数据比对测试通过。测试结束后procure-test已恢复原来的停止状态。
+
+本轮迁移仅在专用测试数据库实际执行，开发库联调需显式运行pnpm db:dev:up与pnpm db:migrate，再由用户在PyCharm启动后端。接续手写顺序建议为单位基础资料，再做物料与规格，后续落实已确认的单位换算。完整D09继续保留单位、物料、换算及客户端验收事项。
+
+
+## 2026-11-13：用户完成供应商Swagger联调并要求提交
+
+用户反馈当前供应商接口手动测试“没问题”，要求将全部现有修改推送GitHub并继续获取下一步手写代码。提交范围包含供应商业务、0004迁移、接口适配、QO/VO/DTO/DO命名衔接和配套测试、契约及文档。版本验证沿用本轮真实PG的511项全通过记录，并再次通过Ruff和差异检查。下一步手写单位基础资料，按DO、DTO及业务服务顺序推进。

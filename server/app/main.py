@@ -16,7 +16,7 @@ from app.errors import (
     validation_error_handler,
 )
 from app.maintenance import MaintenanceGate
-from app.persistence.database import Database
+from app.persistence.database import DatabaseManager
 from app.security.rate_limit import LoginRateLimiter
 from app.services.command_executor import CommandExecutor
 from app.settings import Settings
@@ -26,7 +26,7 @@ logger = logging.getLogger("procure.api")
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     configured = settings if settings is not None else Settings()
-    database = Database(
+    database = DatabaseManager(
         configured.database_url.get_secret_value() if configured.database_url else None
     )
 
@@ -82,6 +82,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     from app.documents.api import router as file_router
 
     application.include_router(file_router)
+    from app.suppliers import router as supplier_router
+
+    application.include_router(supplier_router)
     return application
 
 

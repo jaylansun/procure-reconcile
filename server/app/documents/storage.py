@@ -27,7 +27,7 @@ class StorageError(ValueError):
         super().__init__(message)
 
 
-class FileTooLarge(StorageError):
+class FileTooLargeError(StorageError):
     """流式上传超过配置上限，供接口映射为413。"""
 
     def __init__(self) -> None:
@@ -35,7 +35,7 @@ class FileTooLarge(StorageError):
 
 
 @dataclass(frozen=True)
-class StagedFile:
+class StagedFileDTO:
     """已完整写入并同步的暂存文件，只能交回同一存储目录。"""
 
     path: Path
@@ -44,7 +44,7 @@ class StagedFile:
 
 
 @dataclass(frozen=True)
-class StoredObject:
+class StoredObjectDTO:
     """已持久化的内容对象；created表示本次是否首次发布。"""
 
     path: Path
@@ -115,10 +115,10 @@ class FileStore:
         if not isinstance(digest, str) or _DIGEST.fullmatch(digest) is None:
             raise StorageError("invalid_digest", "文件标识不合法")
 
-    def _staged_name(self, staged: StagedFile) -> str:
+    def _staged_name(self, staged: StagedFileDTO) -> str:
         """暂存路径必须是本存储生成的直接子文件，不能越级或跳目录。"""
         if (
-            not isinstance(staged, StagedFile)
+            not isinstance(staged, StagedFileDTO)
             or not isinstance(staged.path, Path)
             or staged.path.parent != self._staging
             or _STAGED_NAME.fullmatch(staged.path.name) is None
@@ -181,7 +181,7 @@ class FileStore:
             raise StorageError("unsafe_path", "文件类型不安全")
         return os.fdopen(descriptor, "rb")
 
-    def stage(self, chunks: Iterable[bytes]) -> StagedFile:
+    def stage(self, chunks: Iterable[bytes]) -> StagedFileDTO:
         """逐块限额写入并计算摘要；任何失败均清理本次临时文件。"""
         with self._directories() as (staging_fd, _):
             name, output = self._create_temporary(staging_fd)
@@ -194,12 +194,12 @@ class FileStore:
                             raise StorageError("invalid_chunk", "文件内容必须为字节块")
                         size += len(chunk)
                         if size > self.max_bytes:
-                            raise FileTooLarge()
+                            raise FileTooLargeError()
                         self._write_all(output, chunk)
                         digest.update(chunk)
                     os.fsync(output.fileno())
                 os.fsync(staging_fd)
-                return StagedFile(self._staging / name, digest.hexdigest(), size)
+                return StagedFileDTO(self._staging / name, digest.hexdigest(), size)
             except BaseException as error:
                 output.close()
                 self._delete_temporary(staging_fd, name)
@@ -207,7 +207,7 @@ class FileStore:
                     raise
                 raise StorageError("invalid_chunks", "文件内容读取失败") from None
 
-    def publish(self, staged: StagedFile) -> StoredObject:
+    def publish(self, staged: StagedFileDTO) -> StoredObjectDTO:
         """校验后原子发布；保留staged，调用方须在finally中discard。"""
         name = self._staged_name(staged)
         self._validate_digest(staged.sha256)
@@ -218,7 +218,7 @@ class FileStore:
         ):
             raise StorageError("invalid_staged", "暂存文件大小不合法")
         if staged.size_bytes > self.max_bytes:
-            raise FileTooLarge()
+            raise FileTooLargeError()
         with self._directories() as (staging_fd, objects_fd):
             # 另建发布副本，避免原staged路径在发布后被修改而改变内容对象。
             temporary_name, output = self._create_temporary(staging_fd)
@@ -229,7 +229,7 @@ class FileStore:
                     while chunk := source.read(_CHUNK_SIZE):
                         size += len(chunk)
                         if size > self.max_bytes:
-                            raise FileTooLarge()
+                            raise FileTooLargeError()
                         self._write_all(output, chunk)
                         digest.update(chunk)
                     if digest.hexdigest() != staged.sha256 or size != staged.size_bytes:
@@ -253,7 +253,7 @@ class FileStore:
                         raise StorageError("corrupt_object", "已存文件校验失败")
                     os.fsync(stored.fileno())
                 os.fsync(objects_fd)
-                return StoredObject(self._objects / staged.sha256, staged.sha256, size, created)
+                return StoredObjectDTO(self._objects / staged.sha256, staged.sha256, size, created)
             finally:
                 output.close()
                 self._delete_temporary(staging_fd, temporary_name)
@@ -287,7 +287,7 @@ class FileStore:
             except OSError:
                 raise StorageError("io_error", "文件读取失败") from None
 
-    def discard(self, staged: StagedFile) -> None:
+    def discard(self, staged: StagedFileDTO) -> None:
         """幂等删除合法暂存文件，不影响已经发布的对象。"""
         name = self._staged_name(staged)
         with self._directories() as (staging_fd, _):

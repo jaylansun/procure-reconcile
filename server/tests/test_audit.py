@@ -8,7 +8,7 @@ from uuid import UUID, uuid4
 import pytest
 from sqlalchemy.orm import Session
 
-from app.services.audit import AuditChange, append_audit
+from app.services.audit import AuditChangeDTO, append_audit
 
 
 class AddOnlySession:
@@ -33,7 +33,7 @@ def test_details_are_explicit_independent_snapshots_with_recursive_redaction() -
         "order_key": "order-1",
         "monkey": "保留业务值",
     }
-    change = AuditChange(" receipt ", "行-1 ", 0, 1, " 人工复核 ", original)
+    change = AuditChangeDTO(" receipt ", "行-1 ", 0, 1, " 人工复核 ", original)
     session = AddOnlySession()
     event = append_audit(
         cast(Session, session),
@@ -65,7 +65,7 @@ def test_details_are_explicit_independent_snapshots_with_recursive_redaction() -
 
 def test_defaults_and_repeated_appends_never_share_or_replace_records() -> None:
     """同一命令可追加多项审计，默认明细互不污染，也不查询覆盖既有记录。"""
-    first, second = AuditChange("receipt", "1"), AuditChange("receipt", "2")
+    first, second = AuditChangeDTO("receipt", "1"), AuditChangeDTO("receipt", "2")
     first.details["note"] = "仅第一条"
     assert second.details == {}
     session = AddOnlySession()
@@ -105,7 +105,7 @@ def test_defaults_and_repeated_appends_never_share_or_replace_records() -> None:
 def test_inexact_or_non_json_details_are_rejected(details: object) -> None:
     """包括敏感键在内的所有输入先校验类型，不能靠遮盖绕过JSON约束。"""
     with pytest.raises(ValueError):
-        AuditChange("receipt", "1", details=cast(dict[str, object], details))
+        AuditChangeDTO("receipt", "1", details=cast(dict[str, object], details))
 
 
 def test_cycles_are_rejected_but_shared_noncyclic_values_are_allowed() -> None:
@@ -113,9 +113,9 @@ def test_cycles_are_rejected_but_shared_noncyclic_values_are_allowed() -> None:
     cyclic: dict[str, object] = {}
     cyclic["self"] = cyclic
     with pytest.raises(ValueError, match="循环引用"):
-        AuditChange("receipt", "1", details=cyclic)
+        AuditChangeDTO("receipt", "1", details=cyclic)
     shared = ["物料甲", None, True]
-    change = AuditChange("receipt", "1", details={"first": shared, "second": shared})
+    change = AuditChangeDTO("receipt", "1", details={"first": shared, "second": shared})
     assert change.details == {"first": shared, "second": shared}
     shared.append("后来修改")
     assert change.details["first"] == ["物料甲", None, True]
@@ -140,7 +140,7 @@ def test_invalid_target_reason_and_versions_fail_before_session_add(overrides: d
     """字段长度与64位版本范围在入队前确定，bool不作为版本数。"""
     values = {"target_type": "receipt", "target_id": "1", **overrides}
     with pytest.raises(ValueError):
-        AuditChange(**values)
+        AuditChangeDTO(**values)
 
 
 @pytest.mark.parametrize(
@@ -158,13 +158,13 @@ def test_invalid_append_metadata_does_not_queue_an_event(overrides: dict) -> Non
     session = AddOnlySession()
     values = {"command_id": uuid4(), "actor_id": 1, "operation": "receipt.accept", **overrides}
     with pytest.raises(ValueError):
-        append_audit(cast(Session, session), **values, change=AuditChange("receipt", "1"))
+        append_audit(cast(Session, session), **values, change=AuditChangeDTO("receipt", "1"))
     assert session.added == []
 
 
 def test_mutated_details_are_revalidated_at_append_time() -> None:
     """frozen只固定字段引用，调用方后来注入浮点也必须在追加前拒绝。"""
-    change = AuditChange("receipt", "1")
+    change = AuditChangeDTO("receipt", "1")
     change.details["amount"] = 1.1
     session = AddOnlySession()
     with pytest.raises(ValueError):

@@ -10,7 +10,7 @@ from sqlalchemy.exc import IntegrityError
 
 from app.main import create_app
 from app.persistence import schema
-from app.persistence.models import Administrator, AuthSession
+from app.persistence.models import AdministratorDO, AuthSessionDO
 from app.security.admin import initialize_administrator
 from app.security.passwords import new_session_token, token_digest
 from app.security.rate_limit import LoginRateLimiter
@@ -55,7 +55,7 @@ def test_uninitialized_then_initialized_readiness_and_single_administrator(api, 
     with pytest.raises(ValueError, match="已初始化"):
         initialize_administrator(postgres_database, "other", new_session_token())
     with pytest.raises(IntegrityError), postgres_database.sessions.begin() as session:
-        session.add(Administrator(id=2, username="other", password_hash="not-a-real-account"))
+        session.add(AdministratorDO(id=2, username="other", password_hash="not-a-real-account"))
 
 
 def test_login_hash_storage_multiple_devices_and_independent_logout(
@@ -73,7 +73,7 @@ def test_login_hash_storage_multiple_devices_and_independent_logout(
     assert first["token"] != second["token"]
     assert first_response.headers["cache-control"] == "no-store"
     with postgres_database.sessions() as session:
-        stored = session.scalars(select(AuthSession)).all()
+        stored = session.scalars(select(AuthSessionDO)).all()
         assert len(stored) == 2
         assert {record.token_hash for record in stored} == {
             token_digest(first["token"]),
@@ -104,7 +104,7 @@ def test_expired_or_forged_sessions_are_rejected(api, postgres_database, adminis
     token = login(api, administrator).json()["token"]
     with postgres_database.sessions.begin() as session:
         stored = session.scalar(
-            select(AuthSession).where(AuthSession.token_hash == token_digest(token))
+            select(AuthSessionDO).where(AuthSessionDO.token_hash == token_digest(token))
         )
         stored.expires_at = datetime.now(UTC) - timedelta(seconds=1)
     assert (
@@ -203,4 +203,4 @@ def test_rate_limit_and_validation_do_not_create_sessions(api, postgres_database
     assert "secret-must-not-echo" not in invalid.text
     assert set(invalid.json()["error"]) == {"code", "message"}
     with postgres_database.sessions() as session:
-        assert session.scalar(select(func.count()).select_from(AuthSession)) == 0
+        assert session.scalar(select(func.count()).select_from(AuthSessionDO)) == 0

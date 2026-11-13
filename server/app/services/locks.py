@@ -27,7 +27,7 @@ def _source_text(value: str, *, name: str, maximum: int) -> None:
 
 
 @dataclass(frozen=True, slots=True)
-class SourceKey:
+class SourceKeyDTO:
     """跨命令使用同一namespace和identifier，才能锁住同一稳定业务来源。
 
     namespace最多64字符，identifier最多256字符。仅拒绝纯空白和无效文本；
@@ -48,16 +48,16 @@ def _advisory_key(domain: bytes, payload: bytes) -> int:
     return int.from_bytes(digest[:8], byteorder="big", signed=True)
 
 
-def _source_keys(sources: Iterable[SourceKey]) -> list[int]:
+def _source_keys(sources: Iterable[SourceKeyDTO]) -> list[int]:
     """先校验完整输入，再按实际锁键排序去重，避免取得部分锁后才发现坏输入。"""
     try:
         supplied = list(sources)
     except TypeError as failure:
-        raise ValueError("业务来源必须是SourceKey的可迭代集合") from failure
+        raise ValueError("业务来源必须是SourceKeyDTO的可迭代集合") from failure
     keys: set[int] = set()
     for source in supplied:
-        if not isinstance(source, SourceKey):
-            raise ValueError("业务来源集合只能包含SourceKey")
+        if not isinstance(source, SourceKeyDTO):
+            raise ValueError("业务来源集合只能包含SourceKeyDTO")
         # JSON数组保留边界，避免namespace/identifier中含分隔符时出现拼接歧义。
         payload = json.dumps(
             [source.namespace, source.identifier], ensure_ascii=False, separators=(",", ":")
@@ -97,7 +97,9 @@ def lock_command(session: Session, command_id: UUID, *, timeout_ms: int = 3000) 
     _lock_keys(session, [_advisory_key(_COMMAND_DOMAIN, command_id.bytes)], timeout)
 
 
-def lock_sources(session: Session, sources: Iterable[SourceKey], *, timeout_ms: int = 3000) -> None:
+def lock_sources(
+    session: Session, sources: Iterable[SourceKeyDTO], *, timeout_ms: int = 3000
+) -> None:
     """锁定去重后的稳定来源；不同命令锁住相同来源时仍会相互等待。
 
     非空请求要求既有PG事务。空集合不访问数据库。当前函数不翻译数据库异常，

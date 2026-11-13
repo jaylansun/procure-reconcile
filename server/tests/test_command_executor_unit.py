@@ -7,22 +7,22 @@ import pytest
 from sqlalchemy.orm import Session
 
 from app.errors import AppError
-from app.persistence.database import Database
-from app.services.command_executor import CommandContext, CommandExecutor, CommandResult
+from app.persistence.database import DatabaseManager
+from app.services.command_executor import CommandContext, CommandExecutor, CommandResultDTO
 
 
 @pytest.mark.parametrize("attempts", [0, 4, True])
 def test_transaction_attempts_are_bounded(attempts: int) -> None:
     """尝试次数不能配置成零、无限重试或布尔值。"""
     with pytest.raises(ValueError):
-        CommandExecutor(Database(None), max_attempts=attempts)
+        CommandExecutor(DatabaseManager(None), max_attempts=attempts)
 
 
 @pytest.mark.parametrize("timeout", [0, -1, True])
 def test_lock_timeout_must_be_positive(timeout: int) -> None:
     """禁止无界锁等待或无效毫秒值。"""
     with pytest.raises(ValueError):
-        CommandExecutor(Database(None), lock_timeout_ms=timeout)
+        CommandExecutor(DatabaseManager(None), lock_timeout_ms=timeout)
 
 
 def test_expected_version_conflict_is_a_business_error() -> None:
@@ -39,10 +39,10 @@ def test_expected_version_conflict_is_a_business_error() -> None:
 def test_payload_root_remains_a_dictionary_after_envelope_is_added(payload: object) -> None:
     """内部指纹封装不能意外放宽公开接口对payload根字典的要求。"""
     with pytest.raises(ValueError):
-        CommandExecutor(Database(None)).execute(
+        CommandExecutor(DatabaseManager(None)).execute(
             command_id=uuid4(),
             operation="test.change",
             payload=cast(dict[str, object], payload),
             actor_id=1,
-            handler=lambda context: CommandResult(200),
+            handler=lambda context: CommandResultDTO(200),
         )

@@ -7,7 +7,7 @@ from uuid import UUID, uuid4
 
 from sqlalchemy.orm import Session
 
-from app.persistence.models import AuditEvent
+from app.persistence.models import AuditEventDO
 
 _MAX_VERSION = 2**63 - 1
 _REDACTED = "[REDACTED]"
@@ -95,7 +95,7 @@ def _snapshot_details(details: dict[str, object]) -> dict[str, object]:
 
 
 @dataclass(frozen=True, slots=True)
-class AuditChange:
+class AuditChangeDTO:
     """调用方显式提供必要业务字段，不传整份请求、口令或会话内容。
 
     details只接受精确JSON类型，金额数量用十进制字符串。构造及追加时均复制，
@@ -124,8 +124,8 @@ class AuditChange:
 
 
 def append_audit(
-    session: Session, *, command_id: UUID, actor_id: int, operation: str, change: AuditChange
-) -> AuditEvent:
+    session: Session, *, command_id: UUID, actor_id: int, operation: str, change: AuditChangeDTO
+) -> AuditEventDO:
     """只加入当前Session，不flush/commit；由执行器与业务和命令记录原子提交。
 
     command_id外键由数据库延迟检查，允许执行器在同一事务稍后保存成功命令记录。
@@ -136,10 +136,10 @@ def append_audit(
     if type(actor_id) is not int or not 1 <= actor_id <= _MAX_VERSION:
         raise ValueError("审计操作者必须为正整数")
     _text(operation, name="审计操作", maximum=128)
-    if not isinstance(change, AuditChange):
-        raise ValueError("审计变更必须为AuditChange")
+    if not isinstance(change, AuditChangeDTO):
+        raise ValueError("审计变更必须为AuditChangeDTO")
     # details仍可能被外部显式修改；入Session前重新检查并脱离调用方容器。
-    checked = AuditChange(
+    checked = AuditChangeDTO(
         target_type=change.target_type,
         target_id=change.target_id,
         before_version=change.before_version,
@@ -147,7 +147,7 @@ def append_audit(
         reason=change.reason,
         details=change.details,
     )
-    event = AuditEvent(
+    event = AuditEventDO(
         id=uuid4(),
         command_id=command_id,
         actor_id=actor_id,

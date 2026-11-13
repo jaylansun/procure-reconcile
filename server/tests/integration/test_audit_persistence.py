@@ -7,26 +7,26 @@ from sqlalchemy import event, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.persistence.database import Database
-from app.persistence.models import Administrator, AuditEvent, CommandRecord
-from app.services.audit import AuditChange, append_audit
+from app.persistence.database import DatabaseManager
+from app.persistence.models import AdministratorDO, AuditEventDO, CommandRecordDO
+from app.services.audit import AuditChangeDTO, append_audit
 
 pytestmark = pytest.mark.postgres
 
 
 @pytest.fixture
-def audit_sessions(postgres_database: Database) -> sessionmaker[Session]:
+def audit_sessions(postgres_database: DatabaseManager) -> sessionmaker[Session]:
     """为审计外键准备测试操作者；不创建可用于真实登录的凭据。"""
     factory = postgres_database.sessions
     assert factory is not None
     with factory.begin() as session:
-        session.add(Administrator(id=1, username="audit-test", password_hash="not-a-login-hash"))
+        session.add(AdministratorDO(id=1, username="audit-test", password_hash="not-a-login-hash"))
     return factory
 
 
-def command_record(command_id: UUID) -> CommandRecord:
+def command_record(command_id: UUID) -> CommandRecordDO:
     """构造同事务内的成功记录，响应内容不承担审计明细职责。"""
-    return CommandRecord(
+    return CommandRecordDO(
         command_id=command_id,
         operation="receipt.accept",
         request_fingerprint="a" * 64,
@@ -41,7 +41,7 @@ def test_audit_fields_and_redacted_precise_details_round_trip(
     """审计可先flush，命令记录随后保存；字段和精确数值往返不丢失。"""
     command_id = uuid4()
     with audit_sessions.begin() as session:
-        change = AuditChange(
+        change = AuditChangeDTO(
             "receipt-line",
             "行-1",
             0,
@@ -62,7 +62,7 @@ def test_audit_fields_and_redacted_precise_details_round_trip(
         session.add(command_record(command_id))
         audit_id = audit.id
     with audit_sessions() as session:
-        stored = session.get(AuditEvent, audit_id)
+        stored = session.get(AuditEventDO, audit_id)
         assert stored is not None
         assert stored.command_id == command_id
         assert stored.actor_id == 1
@@ -91,13 +91,13 @@ def test_outer_rollback_removes_audit_and_command_together(
             command_id=command_id,
             actor_id=1,
             operation="receipt.accept",
-            change=AuditChange("receipt-line", "行-1"),
+            change=AuditChangeDTO("receipt-line", "行-1"),
         )
         session.flush()
         raise RuntimeError("模拟业务失败")
     with audit_sessions() as session:
-        assert session.get(CommandRecord, command_id) is None
-        assert session.scalar(select(func.count()).select_from(AuditEvent)) == 0
+        assert session.get(CommandRecordDO, command_id) is None
+        assert session.scalar(select(func.count()).select_from(AuditEventDO)) == 0
 
 
 def test_missing_command_fails_at_commit_and_does_not_leave_an_audit(
@@ -110,12 +110,12 @@ def test_missing_command_fails_at_commit_and_does_not_leave_an_audit(
             command_id=uuid4(),
             actor_id=1,
             operation="receipt.accept",
-            change=AuditChange("receipt-line", "行-1"),
+            change=AuditChangeDTO("receipt-line", "行-1"),
         )
         session.flush()
     assert failure.value.orig.sqlstate == "23503"
     with audit_sessions() as session:
-        assert session.scalar(select(func.count()).select_from(AuditEvent)) == 0
+        assert session.scalar(select(func.count()).select_from(AuditEventDO)) == 0
 
 
 def test_repeated_appends_and_default_details_do_not_overwrite_existing_events(
@@ -130,20 +130,20 @@ def test_repeated_appends_and_default_details_do_not_overwrite_existing_events(
             command_id=command_id,
             actor_id=1,
             operation="receipt.accept",
-            change=AuditChange("receipt", "1"),
+            change=AuditChangeDTO("receipt", "1"),
         )
         second = append_audit(
             session,
             command_id=command_id,
             actor_id=1,
             operation="receipt.accept",
-            change=AuditChange("receipt", "1"),
+            change=AuditChangeDTO("receipt", "1"),
         )
         assert first.details is not second.details
         assert first.id != second.id
     with audit_sessions() as session:
         stored = session.scalars(
-            select(AuditEvent).where(AuditEvent.command_id == command_id)
+            select(AuditEventDO).where(AuditEventDO.command_id == command_id)
         ).all()
         assert len(stored) == 2
         assert all(item.details == {} for item in stored)
@@ -171,11 +171,11 @@ def test_append_does_not_flush_unrelated_pending_changes(
             command_id=invalid.command_id,
             actor_id=1,
             operation="receipt.accept",
-            change=AuditChange("receipt", "1"),
+            change=AuditChangeDTO("receipt", "1"),
         )
         assert audit in session.new
         assert flushes == []
         assert session.in_transaction()
         session.rollback()
     with audit_sessions() as session:
-        assert session.scalar(select(func.count()).select_from(AuditEvent)) == 0
+        assert session.scalar(select(func.count()).select_from(AuditEventDO)) == 0

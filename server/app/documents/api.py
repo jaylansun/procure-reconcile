@@ -15,7 +15,7 @@ from starlette.requests import ClientDisconnect
 
 from app.api import ActorDep
 from app.documents.service import FileService
-from app.documents.storage import FileStore, StagedFile, StorageError
+from app.documents.storage import FileStore, StagedFileDTO, StorageError
 from app.errors import AppError
 from app.services.http import command_response
 
@@ -24,7 +24,7 @@ router = APIRouter(prefix="/api/v1/files", tags=["原件"])
 _CHUNK_SIZE = 1024 * 1024
 
 
-class FileMetadata(BaseModel):
+class FileMetadataVO(BaseModel):
     """对外的原件元数据；物理目录和内部操作者字段不出现在接口中。"""
 
     file_id: UUID
@@ -54,9 +54,9 @@ def _chunks(stream: BinaryIO) -> Iterator[bytes]:
 @router.post(
     "",
     status_code=201,
-    response_model=FileMetadata,
+    response_model=FileMetadataVO,
     responses={
-        200: {"model": FileMetadata, "description": "复用已有内容，或重放原200结果"},
+        200: {"model": FileMetadataVO, "description": "复用已有内容，或重放原200结果"},
         409: {"description": "命令冲突或相关资源正忙"},
         413: {"description": "超过配置的单文件大小"},
     },
@@ -93,7 +93,7 @@ async def _receive_upload(
             raise AppError(400, "invalid_content_length", "文件长度标头不合法")
         if int(length_header) > limit:
             raise AppError(413, "file_too_large", "文件超过允许的大小")
-    staged: StagedFile | None = None
+    staged: StagedFileDTO | None = None
     try:
         # 小文件留在内存，超过1MiB后自动转临时文件；网络接收在SQL事务外。
         with SpooledTemporaryFile(max_size=_CHUNK_SIZE, mode="w+b") as spool:
@@ -127,7 +127,7 @@ async def _receive_upload(
                 logger.warning("staged_cleanup_failed code=%s", error.code)
 
 
-@router.get("/{file_id}", response_model=FileMetadata)
+@router.get("/{file_id}", response_model=FileMetadataVO)
 def file_metadata(file_id: UUID, request: Request, actor: ActorDep) -> dict[str, object]:
     """返回可关联的原件标识与元数据，不泄露服务端物理路径。"""
     return _service(request).metadata(file_id)

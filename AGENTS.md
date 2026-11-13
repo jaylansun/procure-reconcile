@@ -16,3 +16,6 @@
 - 修改后执行对应检查，更新执行日志。文档任务不代表已完成；未实际通过的安装包/部署/模型能力必须保留待验收。
 - 当前分工为用户手写业务、助手实现基础设施和所有测试：用户已于2026-11-02要求“把这些都写完，我只写业务”，命令幂等、事务/来源锁、审计、原件存储和接口适配等公共代码可由助手直接编写和修复。供应商、物料、订单、收退货和对账等业务实现继续在对话中提供，配中文文档字符串和必要中文注释，按要求准备空白文件，由用户手写；只有用户明确要求代写或修改时才直接改写这些业务实现。测试全部由助手直接编写、维护和运行。
 - 保留用户根 main.py 示例和现有 Git 历史；不覆盖 .idea。未经用户要求不推送、发布或操作 Jenkins。
+
+- 类名严格按真实用途命名并使用一致后缀。QO（Query Object）仅承载查询、筛选、分页及排序条件，DTO（Data Transfer Object）承载新增/修改命令输入和内部传输数据，VO（View Object）承载接口返回展示数据，DO（Data Object）用于SQLAlchemy数据库映射。示例分别为SupplierListQO、CreateSupplierDTO、SupplierVO、SupplierDO，复用的供应商输入资料使用SupplierDTO。统一保留大写QO/DTO/VO/DO，不再使用Input、Output或Data作为数据模型的结尾。按当前功能创建需要的类型。
+- 服务与基础设施类采用职责后缀Service、Executor、Store、Manager、Settings、Context、Gate、Limiter、Session、Runner、Controller、Error；事务上下文、配置或带行为的组件按职责命名。新增类配中文文档字符串说明用途。调整类名时同步导入、类型注解、测试、迁移环境入口、部署脚本中的内嵌Python及OpenAPI契约。

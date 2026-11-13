@@ -64,7 +64,7 @@ uv run --locked pytest
 
 ## 业务命令记录（D05子步骤）
 
-`CommandRecord`映射到`command_records`表，由`0002_commands`迁移创建：
+`CommandRecordDO`映射到`command_records`表，由`0002_commands`迁移创建：
 
 | 字段 | 用途 |
 | --- | --- |
@@ -75,7 +75,7 @@ uv run --locked pytest
 | response_body | JSONB响应内容；Python None存为SQL NULL，JSON.NULL可表示JSON null |
 | created_at | PostgreSQL生成的带时区创建时间 |
 
-`CommandExecutor`已接入同ID重放、载荷冲突、并发串行与有限事务重试；业务变更、成功记录及审计在同一事务提交。接口继承`CommandInput`或`VersionedCommandInput`，注入`ActorDep`和`CommandExecutorDep`，使用`command_response()`返回结果。业务回调不自行提交事务或执行外部副作用。
+`CommandExecutor`已接入同ID重放、载荷冲突、并发串行与有限事务重试；业务变更、成功记录及审计在同一事务提交。接口继承`CommandDTO`或`VersionedCommandDTO`，注入`ActorDep`和`CommandExecutorDep`，使用`command_response()`返回结果。业务回调不自行提交事务或执行外部副作用。
 
 `0003_infrastructure`新增`audit_events`和`stored_files`。审计对象外键延迟至事务提交检查；原件按摘要唯一存储，使用UUID文件标识关联业务。`POST /api/v1/files`使用原始字节请求体、`filename`查询参数及`X-Command-ID`请求头；元数据和下载接口均要求Bearer认证。上传不代表已完成内容解析。
 
@@ -84,3 +84,8 @@ uv run --locked pytest
 新增迁移后，开发库仍需在`server/`显式执行`uv run --locked alembic upgrade head`。本轮迁移只在独立测试库验证，不自动升级开发或正式数据库。就绪检查会同时核对迁移版本和命令表，旧结构或缺表保持未就绪。
 
 uv约定依据：[项目结构](https://docs.astral.sh/uv/concepts/projects/layout/)、[锁定与同步](https://docs.astral.sh/uv/concepts/projects/sync/)、[Docker集成](https://docs.astral.sh/uv/guides/integration/docker/)。
+
+
+### 供应商后端
+
+用户手写的供应商新增、修改、详情和列表业务通过`app/suppliers.py`接入。`0004_suppliers`建立suppliers表，与SupplierDO对应。POST/PUT写入复用公共命令执行器、认证、来源锁、版本检查和审计，GET详情与分页使用已认证数据库会话。请求、查询、响应分别使用DTO、QO、VO。联调路径与输入规则见`docs/backend-business-guide.md`。

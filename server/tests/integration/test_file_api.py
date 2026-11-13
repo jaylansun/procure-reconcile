@@ -12,8 +12,8 @@ from sqlalchemy import func, select
 
 from app.documents.storage import FileStore
 from app.main import create_app
-from app.persistence.database import Database
-from app.persistence.models import AuditEvent, CommandRecord, StoredFile
+from app.persistence.database import DatabaseManager
+from app.persistence.models import AuditEventDO, CommandRecordDO, StoredFileDO
 from app.security.admin import initialize_administrator
 from app.security.passwords import new_session_token
 from app.settings import Settings
@@ -23,7 +23,7 @@ _LIMIT = 1024
 
 
 @pytest.fixture
-def file_api(postgres_database: Database, tmp_path: Path) -> Iterator[TestClient]:
+def file_api(postgres_database: DatabaseManager, tmp_path: Path) -> Iterator[TestClient]:
     """本次API使用隔离数据库、附件目录和临时管理员口令。"""
     password = new_session_token()
     initialize_administrator(postgres_database, "file-admin", password)
@@ -62,10 +62,10 @@ def post_file(
     )
 
 
-def assert_no_upload_records(database: Database) -> None:
+def assert_no_upload_records(database: DatabaseManager) -> None:
     """无效上传不能留下引用、成功命令或文件审计。"""
     with database.sessions() as session:
-        for model in (StoredFile, CommandRecord, AuditEvent):
+        for model in (StoredFileDO, CommandRecordDO, AuditEventDO):
             assert session.scalar(select(func.count()).select_from(model)) == 0
 
 
@@ -127,7 +127,7 @@ def test_chunked_raw_body_does_not_require_content_length(file_api: TestClient) 
 
 @pytest.mark.parametrize("authorization", [None, "Bearer invalid", "Basic abc"])
 def test_all_file_routes_require_authentication(
-    file_api: TestClient, postgres_database: Database, authorization: str | None
+    file_api: TestClient, postgres_database: DatabaseManager, authorization: str | None
 ) -> None:
     """上传、元数据和下载都不能靠公开文件ID绕过管理员会话。"""
     file_api.headers.pop("Authorization")
@@ -156,7 +156,7 @@ def test_logout_revokes_file_access(file_api: TestClient) -> None:
 
 
 def test_dedup_replay_and_conflict_preserve_first_result(
-    file_api: TestClient, postgres_database: Database
+    file_api: TestClient, postgres_database: DatabaseManager
 ) -> None:
     """同内容复用首个ID，命令重放仍为首次201，改名或改内容冲突409。"""
     command_id = uuid4()
@@ -175,9 +175,9 @@ def test_dedup_replay_and_conflict_preserve_first_result(
     assert all(response.status_code == 409 for response in conflicts)
     assert all(response.json()["error"]["code"] == "command_conflict" for response in conflicts)
     with postgres_database.sessions() as session:
-        assert session.scalar(select(func.count()).select_from(StoredFile)) == 1
-        assert session.scalar(select(func.count()).select_from(CommandRecord)) == 2
-        assert session.scalar(select(func.count()).select_from(AuditEvent)) == 4
+        assert session.scalar(select(func.count()).select_from(StoredFileDO)) == 1
+        assert session.scalar(select(func.count()).select_from(CommandRecordDO)) == 2
+        assert session.scalar(select(func.count()).select_from(AuditEventDO)) == 4
     assert_empty_staging(file_api)
 
 
@@ -194,7 +194,7 @@ def test_dedup_replay_and_conflict_preserve_first_result(
 )
 def test_invalid_upload_is_safe_and_leaves_no_partial_records(
     file_api: TestClient,
-    postgres_database: Database,
+    postgres_database: DatabaseManager,
     filename: str,
     content: bytes,
     expected_code: str,
@@ -211,7 +211,7 @@ def test_invalid_upload_is_safe_and_leaves_no_partial_records(
 
 @pytest.mark.parametrize("missing", ["command", "filename", "invalid_command", "long_filename"])
 def test_required_headers_and_filename_query_are_validated(
-    file_api: TestClient, postgres_database: Database, missing: str
+    file_api: TestClient, postgres_database: DatabaseManager, missing: str
 ) -> None:
     """命令头和文件名参数不可缺失，也不能静默接受无效UUID或超长名称。"""
     headers = {} if missing == "command" else {"X-Command-ID": str(uuid4())}
@@ -229,7 +229,7 @@ def test_required_headers_and_filename_query_are_validated(
 
 @pytest.mark.parametrize("length", ["-1", "invalid", "1.5"])
 def test_invalid_content_length_is_rejected(
-    file_api: TestClient, postgres_database: Database, length: str
+    file_api: TestClient, postgres_database: DatabaseManager, length: str
 ) -> None:
     """无法解释为非负整数的长度头不能进入暂存或SQL写入。"""
     response = post_file(file_api, headers={"Content-Length": length})
@@ -241,7 +241,7 @@ def test_invalid_content_length_is_rejected(
 
 @pytest.mark.parametrize("mode", ["declared", "actual", "chunked"])
 def test_configured_size_limit_applies_to_headers_and_real_stream(
-    file_api: TestClient, postgres_database: Database, mode: str
+    file_api: TestClient, postgres_database: DatabaseManager, mode: str
 ) -> None:
     """提前声明或实际接收超限都返回413，不能通过少报长度或分块规避。"""
     if mode == "declared":
@@ -286,7 +286,7 @@ def test_invalid_file_id_is_422(file_api: TestClient, suffix: str) -> None:
 
 @pytest.mark.parametrize("damage", ["missing", "corrupt"])
 def test_referenced_object_failure_returns_503_without_destroying_metadata(
-    file_api: TestClient, postgres_database: Database, damage: str
+    file_api: TestClient, postgres_database: DatabaseManager, damage: str
 ) -> None:
     """引用尚在而物理对象缺失或损坏时明确不可用，不伪装404或重复导入成功。"""
     uploaded = post_file(file_api)
@@ -307,6 +307,6 @@ def test_referenced_object_failure_returns_503_without_destroying_metadata(
         assert response.json()["error"]["code"] == "file_unavailable"
         assert str(store.root) not in response.text
     with postgres_database.sessions() as session:
-        assert session.scalar(select(func.count()).select_from(StoredFile)) == 1
-        assert session.scalar(select(func.count()).select_from(CommandRecord)) == 1
+        assert session.scalar(select(func.count()).select_from(StoredFileDO)) == 1
+        assert session.scalar(select(func.count()).select_from(CommandRecordDO)) == 1
     assert_empty_staging(file_api)

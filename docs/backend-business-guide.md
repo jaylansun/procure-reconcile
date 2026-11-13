@@ -1,6 +1,17 @@
 # 后端业务开发接入指南
 
-更新：2026-11-02。当前分工：你写采购业务，助手负责公共基础设施、迁移衔接和全部测试。已确认的业务规则继续以 implementation-plan.md 为准。
+更新于2026-11-13。当前分工：你写采购业务，助手负责公共基础设施、迁移衔接和全部测试。已确认的业务规则继续以 implementation-plan.md 为准。
+
+## 类名与用途
+
+| 后缀 | 用途 | 项目示例 |
+| --- | --- | --- |
+| QO | 查询、筛选、分页和排序条件 | SupplierListQO |
+| DTO | 新增/修改请求以及内部数据传输 | CreateSupplierDTO、UpdateSupplierDTO、CommandResultDTO |
+| VO | 接口返回的展示数据 | LoginVO、SystemVO、FileMetadataVO |
+| DO | SQLAlchemy数据库映射 | SupplierDO、AdministratorDO、StoredFileDO |
+
+SupplierDTO承载新增和修改复用的供应商资料。CommandDTO提供命令编号，VersionedCommandDTO增加预期版本。服务、执行器、存储、配置、上下文和异常使用对应的职责后缀，例如FileService、CommandExecutor、FileStore、Settings、CommandContext、AppError。每个新增类配中文文档字符串，说明职责和所在层。供应商列表通过SupplierListQO接收分页参数，通过SupplierListVO返回当前页。
 
 ## 已提供的公共能力
 
@@ -15,7 +26,7 @@
 | `app/documents/service.py` | 文件标识、内容去重、数据库引用、失败补偿和显式孤儿回收 |
 | `app/documents/api.py` | 已鉴权的上传、元数据与下载接口 |
 
-业务回调通过 `context.session` 读写自己的业务表，返回 `CommandResult`。公共层承担提交和回滚，你不需要为每个接口再写一套幂等、事务或文件存储。
+业务回调通过 `context.session` 读写自己的业务表，返回 `CommandResultDTO`。公共层承担提交和回滚，你不需要为每个接口再写一套幂等、事务或文件存储。
 
 ## 先准备数据库
 
@@ -31,45 +42,46 @@ pnpm db:migrate
 uv run --locked alembic upgrade head
 ```
 
-当前迁移头为 `0003_infrastructure`，依次增加认证、命令、审计与原件元数据。服务只检查版本，不自动升级。升级前保持使用本项目独立开发库；本轮代码验证只迁移专用测试库，不修改开发或正式库。
+当前迁移头为 `0004_suppliers`，依次增加认证、命令、审计、原件元数据和供应商资料表。服务只检查版本，不自动升级。升级前保持使用本项目独立开发库；本轮代码验证只迁移专用测试库，不修改开发或正式库。
 
 ## 一次业务写入怎样接入
 
-1. 输入模型继承 `CommandInput`；修改已有记录时继承 `VersionedCommandInput`，包含 `expected_version`。
+1. 输入模型继承 `CommandDTO`；修改已有记录时继承 `VersionedCommandDTO`，包含 `expected_version`。
 2. 路由声明 `actor: ActorDep` 和 `executor: CommandExecutorDep`。
 3. 调用 `executor.execute()`，把完整业务输入交给 `payload=data.command_payload()`。
 4. 在同步业务回调中读取、检查和修改业务记录，记录对象审计，返回成功结果。
 5. 路由用 `command_response(result)` 返回结果。
 
-下面是接入形状示例，`SupplierChange`、`change_supplier` 和相应业务模块仍由你编写，并非已经完成的供应商接口：
+下面使用已编写的`UpdateSupplierDTO`演示路由接入方式，实际接口位于`app/suppliers.py`。
 
 ```python
 from app.api import ActorDep
-from app.services.command_executor import CommandContext, CommandResult
+from app.schemas.suppliers import UpdateSupplierDTO
+from app.services.command_executor import CommandContext, CommandResultDTO
 from app.services.http import CommandExecutorDep, command_response
-from app.services.locks import SourceKey
+from app.services.locks import SourceKeyDTO
+from app.services.suppliers import update_supplier
 
 
-def change_supplier_endpoint(data: SupplierChange, actor: ActorDep, executor: CommandExecutorDep):
+def update_supplier_endpoint(data: UpdateSupplierDTO, actor: ActorDep, executor: CommandExecutorDep):
     """把已校验的业务输入交给统一命令执行器。"""
 
-    def apply(context: CommandContext) -> CommandResult:
+    def apply(context: CommandContext) -> CommandResultDTO:
         # 业务函数只使用本次context.session，不自行创建或结束事务。
-        return change_supplier(context, data)
+        return update_supplier(context, data)
 
     result = executor.execute(
         command_id=data.command_id,
-        operation="suppliers.change",
+        operation="suppliers.update",
         payload=data.command_payload(),
         actor_id=actor.id,
-        sources=[SourceKey("supplier", str(data.supplier_id))],
-        reason=data.reason,
+        sources=[SourceKeyDTO("supplier", str(data.supplier_id))],
         handler=apply,
     )
     return command_response(result)
 ```
 
-在 `change_supplier()` 内，你负责“记录不存在怎么办、哪些字段允许修改、什么条件下生效”等业务规则。读取记录后，用下面两个公共方法接入版本和审计：
+在 `update_supplier()` 内，你负责“记录不存在怎么办、哪些字段允许修改、什么条件下生效”等业务规则。读取记录后，用下面两个公共方法接入版本和审计：
 
 ```python
 # 此时执行器已经持有supplier来源锁；row由context.session查询取得。
@@ -80,19 +92,18 @@ previous_version = row.version
 row.version += 1
 
 context.audit(
-    AuditChange(
+    AuditChangeDTO(
         target_type="supplier",
         target_id=str(row.id),
         before_version=previous_version,
         after_version=row.version,
-        reason=data.reason,
         details={"changed_fields": ["name"]},
     )
 )
-return CommandResult(200, {"id": str(row.id), "version": row.version})
+return CommandResultDTO(200, {"id": str(row.id), "version": row.version})
 ```
 
-第二段需从 `app.services.audit` 导入 `AuditChange`。版本字段及递增属于业务模型；公共层提供版本比较，不会凭空给所有业务表增加字段。
+第二段需从 `app.services.audit` 导入 `AuditChangeDTO`。版本字段及递增属于业务模型；公共层提供版本比较，不会凭空给所有业务表增加字段。
 
 ## 命令、锁和事务约定
 
@@ -141,6 +152,21 @@ uv run --locked python -m app.cli cleanup-files --min-age-hours 24
 
 全部测试交给助手。仓库根 `pnpm test:api:pg` 使用独立测试PG并运行整套后端测试；未配置测试PG导致的跳过不算验证通过。不要在开发/正式库运行会清表的测试。验证证据见 execution-log.md。
 
-下一步回到业务线：补齐D08精确数值的PG往返验证，然后从D09供应商资料开始，随后物料/单位、订单、收退货、对账。D08已有纯计算实现，供应商等业务尚未代写。D05公共代码可直接接入，但正式双环境容器重建持久性、LAN HTTPS和跨平台安装仍需独立验收。
+供应商后端已经接入新增、修改、详情和列表接口，具备认证、幂等、来源锁、版本检查和审计。D09接续顺序为单位基础资料、物料与规格、经确认的单位换算，再进入订单业务。完整D09还包含客户端选择控件及历史引用验收，进度以实际代码和执行日志为准。
 
 当前 `app/api.py` 与 `app/persistence/models.py` 均是文件，规划中的细分路径是目标布局。需要扩展模块时由助手处理拆分、导入、迁移与测试衔接，避免创建同名目录导致Python导入冲突。
+
+## 供应商接口联调
+
+开发库启动后，在仓库根目录执行`pnpm db:migrate`，将开发库显式升级到当前迁移头。随后由PyCharm启动后端，在`http://127.0.0.1:18081/docs`打开接口文档，登录取得Bearer会话后使用供应商接口。
+
+| 方法 | 路径 | 输入与结果 |
+| --- | --- | --- |
+| POST | `/api/v1/suppliers` | CreateSupplierDTO包含command_id及data，返回201和SupplierVO |
+| PUT | `/api/v1/suppliers/{supplier_id}` | UpdateSupplierDTO包含相同supplier_id、command_id、expected_version及完整data，返回200和SupplierVO |
+| GET | `/api/v1/suppliers/{supplier_id}` | 返回SupplierVO，记录缺失返回404 |
+| GET | `/api/v1/suppliers` | SupplierListQO包含offset和limit，返回SupplierListVO的items、offset、limit |
+
+新增及修改请求的data包含name和可选contact_info。修改采用完整资料提交，省略或传null会清空联系信息。每次新操作生成新的command_id，重试原操作复用原ID与请求内容。修改路径和DTO中的supplier_id须一致。列表默认offset=0、limit=20，limit范围1至100，offset范围0至PostgreSQL的有符号64位整数上限。
+
+SupplierListQO、SupplierVO和SupplierListVO由HTTP适配层提供，SupplierDO及CreateSupplierDTO/UpdateSupplierDTO接入用户手写业务函数。

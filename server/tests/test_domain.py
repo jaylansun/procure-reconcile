@@ -2,16 +2,16 @@ from decimal import Decimal
 
 import pytest
 
-from app.domain.money import LineAmounts, calculate_line, sum_lines
+from app.domain.money import LineAmountsDTO, calculate_line, sum_lines
 from app.domain.numbers import exact_decimal
 from app.domain.quantities import net_accepted, pending_problem, validate_receipt
 
 
 def test_tax_inclusive_and_exclusive_follow_different_authoritative_bases():
     inclusive = calculate_line("1", "1.005", "13.0000", "tax_inclusive")
-    assert inclusive == LineAmounts(Decimal("0.89"), Decimal("0.12"), Decimal("1.01"))
+    assert inclusive == LineAmountsDTO(Decimal("0.89"), Decimal("0.12"), Decimal("1.01"))
     exclusive = calculate_line("1", "1.005", "13.0000", "tax_exclusive")
-    assert exclusive == LineAmounts(Decimal("1.01"), Decimal("0.13"), Decimal("1.14"))
+    assert exclusive == LineAmountsDTO(Decimal("1.01"), Decimal("0.13"), Decimal("1.14"))
 
 
 def test_round_per_line_then_sum_and_keep_unit_price_precision():

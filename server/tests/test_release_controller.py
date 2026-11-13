@@ -1,5 +1,7 @@
 """不启动Docker，以故障注入验证发布停写、恢复隔离、秘密与备份完整性。"""
 
+import ast
+import importlib
 import importlib.util
 import io
 import json
@@ -182,8 +184,8 @@ def make_controller(tmp_path, failure=None, *, initial_schema=True):
     tls = tmp_path / "tls"
     tls.mkdir()
     (tls / "ca.crt").write_text(TEST_CA)
-    controller = release.Controller(
-        release.Configuration.read(configuration_bytes()),
+    controller = release.ReleaseController(
+        release.ReleaseSettings.read(configuration_bytes()),
         "test-1",
         COMMIT,
         "1",
@@ -221,12 +223,12 @@ def test_dotenv_is_literal_and_duplicate_keys_are_rejected():
 def test_configuration_rejects_wrong_database_target(url):
     """正式控制器只允许本项目内网库、角色和已配置密码。"""
     with pytest.raises(release.ReleaseError, match="wrong_database_target"):
-        release.Configuration.read(configuration_bytes(PROCURE_DATABASE_URL=url))
+        release.ReleaseSettings.read(configuration_bytes(PROCURE_DATABASE_URL=url))
 
 
 def test_secrets_are_not_in_repr_or_long_running_environment(tmp_path):
     """bootstrap凭据仅作一次性stdin输入，不加入Compose配置。"""
-    configuration = release.Configuration.read(configuration_bytes())
+    configuration = release.ReleaseSettings.read(configuration_bytes())
     assert TEST_PASSWORD not in repr(configuration)
     values = configuration.compose_values("test-1")
     assert not any("BOOTSTRAP" in key for key in values)
@@ -247,7 +249,7 @@ def test_runner_hides_raw_driver_output_and_exceptions(monkeypatch, capsys):
         ),
     )
     with pytest.raises(release.ReleaseError) as caught:
-        release.Runner().run(["docker", "synthetic-test"])
+        release.DockerRunner().run(["docker", "synthetic-test"])
     assert str(caught.value) == "docker_command_failed"
     assert capsys.readouterr().out == ""
 
@@ -413,7 +415,7 @@ def test_stale_restore_volume_is_neither_reused_nor_deleted(tmp_path):
 def test_configuration_version_is_saved_in_journal_and_inspection(tmp_path):
     """发布记录关联显式配置版本，不用秘密内容充当配置标识。"""
     controller, _, _ = make_controller(tmp_path)
-    controller.configuration = release.Configuration.read(
+    controller.configuration = release.ReleaseSettings.read(
         configuration_bytes(PROCURE_CONFIG_VERSION="production-config-20261102")
     )
     controller.run()
@@ -425,7 +427,7 @@ def test_configuration_version_is_saved_in_journal_and_inspection(tmp_path):
 def test_invalid_configuration_version_is_rejected(version):
     """配置版本禁止空白、超长、控制字符与无效UTF8。"""
     with pytest.raises(release.ReleaseError, match="invalid_configuration_version"):
-        release.Configuration.read(configuration_bytes(PROCURE_CONFIG_VERSION=version))
+        release.ReleaseSettings.read(configuration_bytes(PROCURE_CONFIG_VERSION=version))
 
 
 @pytest.mark.parametrize("failure", ["missing_ca", "invalid_ca", "oversized_ca", "tls"])
@@ -513,3 +515,20 @@ def test_tls_probe_uses_gateway_socket_and_verified_lan_hostname(monkeypatch, ca
     connect.assert_called_with(("gateway", 443), timeout=10)
     assert requests == ["/health", "/api/v1/system"]
     assert json.loads(capsys.readouterr().out) == {"ok": True}
+
+
+@pytest.mark.parametrize(
+    "script",
+    [
+        value
+        for name, value in vars(release).items()
+        if name.endswith("_SCRIPT") and isinstance(value, str)
+    ],
+)
+def test_embedded_application_imports_resolve(script):
+    """验证维护脚本字符串中的应用类名确实可以导入。"""
+    for node in ast.walk(ast.parse(script)):
+        if isinstance(node, ast.ImportFrom) and node.module and node.module.startswith("app."):
+            module = importlib.import_module(node.module)
+            for alias in node.names:
+                assert hasattr(module, alias.name), (node.module, alias.name)

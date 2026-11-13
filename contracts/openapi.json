@@ -37,7 +37,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SystemOutput"
+                  "$ref": "#/components/schemas/SystemVO"
                 }
               }
             }
@@ -53,7 +53,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/LoginInput"
+                "$ref": "#/components/schemas/LoginDTO"
               }
             }
           },
@@ -65,7 +65,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/LoginOutput"
+                  "$ref": "#/components/schemas/LoginVO"
                 }
               }
             }
@@ -93,7 +93,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SessionOutput"
+                  "$ref": "#/components/schemas/SessionVO"
                 }
               }
             }
@@ -191,7 +191,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/FileMetadata"
+                  "$ref": "#/components/schemas/FileMetadataVO"
                 }
               }
             }
@@ -201,7 +201,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/FileMetadata"
+                  "$ref": "#/components/schemas/FileMetadataVO"
                 }
               }
             }
@@ -267,7 +267,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/FileMetadata"
+                  "$ref": "#/components/schemas/FileMetadataVO"
                 }
               }
             }
@@ -334,11 +334,245 @@
           }
         }
       }
+    },
+    "/api/v1/suppliers": {
+      "post": {
+        "tags": [
+          "供应商"
+        ],
+        "summary": "Create Supplier Endpoint",
+        "description": "创建供应商，通过命令编号安全重试同一次新增。",
+        "operationId": "create_supplier_endpoint_api_v1_suppliers_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateSupplierDTO"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SupplierVO"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "供应商"
+        ],
+        "summary": "List Suppliers Endpoint",
+        "description": "查询当前分页，认证和数据库会话覆盖完整读取过程。",
+        "operationId": "list_suppliers_endpoint_api_v1_suppliers_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 20,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SupplierListVO"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/suppliers/{supplier_id}": {
+      "put": {
+        "tags": [
+          "供应商"
+        ],
+        "summary": "Update Supplier Endpoint",
+        "description": "锁定供应商来源，交由业务函数检查版本并更新资料。",
+        "operationId": "update_supplier_endpoint_api_v1_suppliers__supplier_id__put",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "supplier_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Supplier Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateSupplierDTO"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SupplierVO"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "供应商"
+        ],
+        "summary": "Get Supplier Endpoint",
+        "description": "使用稳定ID读取供应商详情。",
+        "operationId": "get_supplier_endpoint_api_v1_suppliers__supplier_id__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "supplier_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Supplier Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SupplierVO"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
     "schemas": {
-      "FileMetadata": {
+      "CreateSupplierDTO": {
+        "properties": {
+          "command_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Command Id"
+          },
+          "data": {
+            "$ref": "#/components/schemas/SupplierDTO"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "command_id",
+          "data"
+        ],
+        "title": "CreateSupplierDTO",
+        "description": "新增命令：包含命令编号和供应商资料。"
+      },
+      "FileMetadataVO": {
         "properties": {
           "file_id": {
             "type": "string",
@@ -378,7 +612,7 @@
           "media_type",
           "created_at"
         ],
-        "title": "FileMetadata",
+        "title": "FileMetadataVO",
         "description": "对外的原件元数据；物理目录和内部操作者字段不出现在接口中。"
       },
       "HTTPValidationError": {
@@ -394,7 +628,7 @@
         "type": "object",
         "title": "HTTPValidationError"
       },
-      "LoginInput": {
+      "LoginDTO": {
         "properties": {
           "username": {
             "type": "string",
@@ -424,9 +658,10 @@
           "password",
           "device_name"
         ],
-        "title": "LoginInput"
+        "title": "LoginDTO",
+        "description": "登录请求传输对象，接收用户名、密码和设备名称。"
       },
-      "LoginOutput": {
+      "LoginVO": {
         "properties": {
           "token": {
             "type": "string",
@@ -438,7 +673,7 @@
             "title": "Expires At"
           },
           "user": {
-            "$ref": "#/components/schemas/UserOutput"
+            "$ref": "#/components/schemas/UserVO"
           }
         },
         "type": "object",
@@ -447,9 +682,10 @@
           "expires_at",
           "user"
         ],
-        "title": "LoginOutput"
+        "title": "LoginVO",
+        "description": "登录结果展示对象，返回会话令牌、有效期和用户资料。"
       },
-      "SessionOutput": {
+      "SessionVO": {
         "properties": {
           "username": {
             "type": "string",
@@ -466,9 +702,119 @@
           "username",
           "expires_at"
         ],
-        "title": "SessionOutput"
+        "title": "SessionVO",
+        "description": "会话展示对象，返回当前登录用户和到期时间。"
       },
-      "SystemOutput": {
+      "SupplierDTO": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "contact_info": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contact Info"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "SupplierDTO",
+        "description": "新增和修改共用的供应商完整资料。"
+      },
+      "SupplierListVO": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SupplierVO"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Offset"
+          },
+          "limit": {
+            "type": "integer",
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Limit"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "offset",
+          "limit"
+        ],
+        "title": "SupplierListVO",
+        "description": "供应商分页展示对象，返回当前页记录和分页参数。"
+      },
+      "SupplierVO": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "contact_info": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contact Info"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Version"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "contact_info",
+          "version",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "SupplierVO",
+        "description": "供应商展示对象，返回稳定标识、资料、版本和时间。"
+      },
+      "SystemVO": {
         "properties": {
           "environment": {
             "type": "string",
@@ -511,9 +857,42 @@
           "ready",
           "reason"
         ],
-        "title": "SystemOutput"
+        "title": "SystemVO",
+        "description": "系统状态展示对象，返回环境、实例及服务就绪状态。"
       },
-      "UserOutput": {
+      "UpdateSupplierDTO": {
+        "properties": {
+          "command_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Command Id"
+          },
+          "expected_version": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Expected Version"
+          },
+          "supplier_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Supplier Id"
+          },
+          "data": {
+            "$ref": "#/components/schemas/SupplierDTO"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "command_id",
+          "expected_version",
+          "supplier_id",
+          "data"
+        ],
+        "title": "UpdateSupplierDTO",
+        "description": "修改命令：还须提供供应商ID和预期版本。"
+      },
+      "UserVO": {
         "properties": {
           "username": {
             "type": "string",
@@ -524,7 +903,8 @@
         "required": [
           "username"
         ],
-        "title": "UserOutput"
+        "title": "UserVO",
+        "description": "用户展示对象，作为接口响应中的用户资料。"
       },
       "ValidationError": {
         "properties": {

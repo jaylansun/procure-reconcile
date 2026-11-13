@@ -1,12 +1,12 @@
 from sqlalchemy import text
 
-from app.persistence.database import Database
-from app.persistence.models import Administrator
+from app.persistence.database import DatabaseManager
+from app.persistence.models import AdministratorDO
 from app.persistence.schema import expected_schema_heads
 from app.security.passwords import hash_password
 
 
-def initialize_administrator(database: Database, username: str, password: str) -> None:
+def initialize_administrator(database: DatabaseManager, username: str, password: str) -> None:
     """Controlled CLI/test entry only. No public registration or reset route."""
     username = username.strip()
     if not username or len(username) > 64 or any(ord(c) < 32 for c in username):
@@ -20,6 +20,6 @@ def initialize_administrator(database: Database, username: str, password: str) -
         revisions = set(session.scalars(text("SELECT version_num FROM public.alembic_version")))
         if revisions != expected_schema_heads():
             raise ValueError("请先执行数据库迁移至当前版本")
-        if session.get(Administrator, 1) is not None:
+        if session.get(AdministratorDO, 1) is not None:
             raise ValueError("管理员已初始化，不能覆盖账号或密码")
-        session.add(Administrator(id=1, username=username, password_hash=password_hash))
+        session.add(AdministratorDO(id=1, username=username, password_hash=password_hash))

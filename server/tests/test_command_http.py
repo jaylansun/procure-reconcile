@@ -7,17 +7,17 @@ from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
-from app.services.command_executor import CommandResult
+from app.services.command_executor import CommandResultDTO
 from app.services.http import (
+    CommandDTO,
     CommandExecutorDep,
-    CommandInput,
-    VersionedCommandInput,
+    VersionedCommandDTO,
     command_response,
     get_command_executor,
 )
 
 
-class ExampleInput(VersionedCommandInput):
+class ExampleDTO(VersionedCommandDTO):
     """用真实业务字段形状验证根命令编号和嵌套内容的边界。"""
 
     name: str
@@ -29,7 +29,7 @@ class ExampleInput(VersionedCommandInput):
 def test_payload_removes_only_root_command_id_and_serializes_json_values() -> None:
     """只移除根命令ID，版本、空格和嵌套同名字段仍必须参与指纹。"""
     command_id, related_id = uuid4(), uuid4()
-    body = ExampleInput(
+    body = ExampleDTO(
         command_id=command_id,
         expected_version=0,
         name=" 中文原值 ",
@@ -53,7 +53,7 @@ def test_payload_removes_only_root_command_id_and_serializes_json_values() -> No
 @pytest.mark.parametrize("value", [0, 1, 2**63 - 1])
 def test_nonnegative_integer_versions_are_accepted(value: int) -> None:
     """版本0及正常正整数保留整数类型，不转换为字符串或浮点数。"""
-    parsed = VersionedCommandInput(command_id=str(uuid4()), expected_version=value)
+    parsed = VersionedCommandDTO(command_id=str(uuid4()), expected_version=value)
     assert type(parsed.expected_version) is int
     assert parsed.command_payload() == {"expected_version": value}
 
@@ -62,7 +62,7 @@ def test_nonnegative_integer_versions_are_accepted(value: int) -> None:
 def test_version_is_strict_and_cannot_coerce_other_types(value: object) -> None:
     """负数、布尔、文本和浮点数不能被宽松转换成合法版本。"""
     with pytest.raises(ValidationError):
-        VersionedCommandInput(command_id=uuid4(), expected_version=value)
+        VersionedCommandDTO(command_id=uuid4(), expected_version=value)
 
 
 @pytest.mark.parametrize(
@@ -77,13 +77,13 @@ def test_version_is_strict_and_cannot_coerce_other_types(value: object) -> None:
 def test_command_id_is_required_uuid_and_extra_fields_are_forbidden(values: dict) -> None:
     """命令身份不能省略，未声明字段不能被静默丢弃而逃过指纹。"""
     with pytest.raises(ValidationError):
-        CommandInput.model_validate(values)
+        CommandDTO.model_validate(values)
 
 
 def test_required_version_cannot_be_omitted() -> None:
     """变更类输入必须显式携带预期版本，不能默认猜测。"""
     with pytest.raises(ValidationError):
-        VersionedCommandInput(command_id=uuid4())
+        VersionedCommandDTO(command_id=uuid4())
 
 
 @pytest.mark.parametrize("replayed", [False, True])
@@ -100,7 +100,7 @@ def test_json_responses_preserve_status_body_and_replay_header(
     @app.get("/")
     def endpoint():
         """模拟任意业务接口复用统一响应转换器。"""
-        return command_response(CommandResult(status, body, replayed=replayed))
+        return command_response(CommandResultDTO(status, body, replayed=replayed))
 
     with TestClient(app) as client:
         response = client.get("/")
@@ -122,7 +122,7 @@ def test_no_content_statuses_emit_no_json_null(status: int, replayed: bool) -> N
     @app.post("/")
     def endpoint():
         """模拟只返回成功状态的幂等命令。"""
-        return command_response(CommandResult(status, replayed=replayed))
+        return command_response(CommandResultDTO(status, replayed=replayed))
 
     with TestClient(app) as client:
         response = client.post("/")

@@ -8,8 +8,15 @@ from alembic.config import Config
 from sqlalchemy import delete
 from sqlalchemy.engine import make_url
 
-from app.persistence.database import Database, normalize_database_url
-from app.persistence.models import Administrator, AuditEvent, AuthSession, CommandRecord, StoredFile
+from app.persistence.database import DatabaseManager, normalize_database_url
+from app.persistence.models import (
+    AdministratorDO,
+    AuditEventDO,
+    AuthSessionDO,
+    CommandRecordDO,
+    StoredFileDO,
+    SupplierDO,
+)
 
 SERVER_ROOT = Path(__file__).resolve().parents[1]
 
@@ -31,20 +38,22 @@ def postgres_database():
     migration = Config(str(SERVER_ROOT / "alembic.ini"))
     migration.attributes["database_url"] = supplied
     command.upgrade(migration, "head")
-    database = Database(supplied)
+    database = DatabaseManager(supplied)
     with database.sessions.begin() as session:
-        session.execute(delete(AuditEvent))
-        session.execute(delete(CommandRecord))
-        session.execute(delete(StoredFile))
-        session.execute(delete(AuthSession))
-        session.execute(delete(Administrator))
+        session.execute(delete(SupplierDO))
+        session.execute(delete(AuditEventDO))
+        session.execute(delete(CommandRecordDO))
+        session.execute(delete(StoredFileDO))
+        session.execute(delete(AuthSessionDO))
+        session.execute(delete(AdministratorDO))
     try:
         yield database
     finally:
         with database.sessions.begin() as session:
-            session.execute(delete(AuditEvent))
-            session.execute(delete(CommandRecord))
-            session.execute(delete(StoredFile))
-            session.execute(delete(AuthSession))
-            session.execute(delete(Administrator))
+            session.execute(delete(SupplierDO))
+            session.execute(delete(AuditEventDO))
+            session.execute(delete(CommandRecordDO))
+            session.execute(delete(StoredFileDO))
+            session.execute(delete(AuthSessionDO))
+            session.execute(delete(AdministratorDO))
         database.close()

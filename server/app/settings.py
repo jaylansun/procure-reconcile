@@ -6,6 +6,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
+    """应用运行配置，读取环境变量和本机配置文件。"""
+
     model_config = SettingsConfigDict(
         env_prefix="PROCURE_", env_file=".env", env_file_encoding="utf-8", extra="ignore"
     )
