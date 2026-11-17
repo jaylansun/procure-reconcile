@@ -6,9 +6,11 @@ from uuid import uuid4
 import pytest
 from sqlalchemy.orm import Session
 
-from app.errors import AppError
+from app.common.commands.command_context import CommandContext
+from app.common.commands.command_executor import CommandExecutor
+from app.common.errors import AppError
+from app.domain.dto.command_result_dto import CommandResultDTO
 from app.persistence.database import DatabaseManager
-from app.services.command_executor import CommandContext, CommandExecutor, CommandResultDTO
 
 
 @pytest.mark.parametrize("attempts", [0, 4, True])

@@ -1,8 +1,13 @@
 import pytest
 
-from app.errors import AppError
-from app.security.passwords import hash_password, new_session_token, token_digest, verify_password
-from app.security.rate_limit import LoginRateLimiter
+from app.common.errors import AppError
+from app.common.security.login_rate_limiter import LoginRateLimiter
+from app.common.security.passwords import (
+    hash_password,
+    new_session_token,
+    token_digest,
+    verify_password,
+)
 
 
 def test_password_hash_is_argon2_and_rejects_incorrect_password():
@@ -32,7 +37,7 @@ def test_administrator_password_requires_bounded_length(password):
 
 def test_failed_login_window_expires_and_is_per_peer(monkeypatch):
     clock = [1000.0]
-    monkeypatch.setattr("app.security.rate_limit.time.monotonic", lambda: clock[0])
+    monkeypatch.setattr("app.common.security.login_rate_limiter.time.monotonic", lambda: clock[0])
     limiter = LoginRateLimiter(attempts=2, window_seconds=30)
     limiter.failed("peer-a")
     limiter.failed("peer-a")

@@ -18,4 +18,7 @@
 - 保留用户根 main.py 示例和现有 Git 历史；不覆盖 .idea。未经用户要求不推送、发布或操作 Jenkins。
 
 - 类名严格按真实用途命名并使用一致后缀。QO（Query Object）仅承载查询、筛选、分页及排序条件，DTO（Data Transfer Object）承载新增/修改命令输入和内部传输数据，VO（View Object）承载接口返回展示数据，DO（Data Object）用于SQLAlchemy数据库映射。示例分别为SupplierListQO、CreateSupplierDTO、SupplierVO、SupplierDO，复用的供应商输入资料使用SupplierDTO。统一保留大写QO/DTO/VO/DO，不再使用Input、Output或Data作为数据模型的结尾。按当前功能创建需要的类型。
-- 服务与基础设施类采用职责后缀Service、Executor、Store、Manager、Settings、Context、Gate、Limiter、Session、Runner、Controller、Error；事务上下文、配置或带行为的组件按职责命名。新增类配中文文档字符串说明用途。调整类名时同步导入、类型注解、测试、迁移环境入口、部署脚本中的内嵌Python及OpenAPI契约。
+- 后端采用已确认的分层目录：app/controller放APIRouter与HTTP接口，app/service放业务服务，app/repository放数据库访问，app/entity放DO，app/domain/dto、qo、vo分别放DTO、QO、VO，app/config放配置，app/common放公共组件，app/persistence放数据库连接、迁移元数据与模型注册。
+- 每个DO、DTO、QO、VO分别建文件，文件名使用对应的snake_case用途后缀，例如supplier_do.py、create_supplier_dto.py、supplier_list_qo.py、supplier_vo.py。每个业务服务使用独立的*_service.py文件及对应的*Service类，例如supplier_service.py中的SupplierService。Repository使用*_repository.py文件及*Repository类。目录重构同步迁移调用方，后续新增代码直接引用对应分层入口。
+- Repository复用调用方提供的Session。采购业务的Service与Repository使用CommandContext.session，由CommandExecutor统一提交业务变更、命令记录与审计；新增DO同时加入app/persistence/model_registry.py，所有DO共享entity/base_do.py中的BaseDO及其metadata。
+- 服务与基础设施类采用职责后缀Service、Repository、Executor、Store、Manager、Settings、Context、Gate、Limiter、Session、Runner、Controller、Error；事务上下文、配置或带行为的组件按职责命名。新增类配中文文档字符串说明用途。调整类名时同步导入、类型注解、测试、迁移环境入口、部署脚本中的内嵌Python及OpenAPI契约。

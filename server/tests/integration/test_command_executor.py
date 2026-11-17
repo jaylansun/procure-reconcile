@@ -12,14 +12,19 @@ import pytest
 from sqlalchemy import func, select, text, update
 from sqlalchemy.exc import DBAPIError
 
-from app.errors import AppError
+from app.common.commands.command_context import CommandContext
+from app.common.commands.command_executor import CommandExecutor
+from app.common.commands.locks import lock_command, lock_sources
+from app.common.errors import AppError
+from app.common.security.passwords import new_session_token
+from app.domain.dto.audit_change_dto import AuditChangeDTO
+from app.domain.dto.command_result_dto import CommandResultDTO
+from app.domain.dto.source_key_dto import SourceKeyDTO
+from app.entity.administrator_do import AdministratorDO
+from app.entity.audit_event_do import AuditEventDO
+from app.entity.command_record_do import CommandRecordDO
 from app.persistence.database import DatabaseManager
-from app.persistence.models import AdministratorDO, AuditEventDO, CommandRecordDO
-from app.security.admin import initialize_administrator
-from app.security.passwords import new_session_token
-from app.services.audit import AuditChangeDTO
-from app.services.command_executor import CommandContext, CommandExecutor, CommandResultDTO
-from app.services.locks import SourceKeyDTO, lock_command, lock_sources
+from app.service.administrator_service import AdministratorService
 
 pytestmark = pytest.mark.postgres
 
@@ -27,7 +32,7 @@ pytestmark = pytest.mark.postgres
 @pytest.fixture
 def executor(postgres_database: DatabaseManager) -> CommandExecutor:
     """仅初始化受保护测试库的管理员，不启动HTTP服务。"""
-    initialize_administrator(postgres_database, "executor-admin", new_session_token())
+    AdministratorService.initialize(postgres_database, "executor-admin", new_session_token())
     return CommandExecutor(postgres_database)
 
 

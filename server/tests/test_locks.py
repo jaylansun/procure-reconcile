@@ -13,7 +13,8 @@ from uuid import uuid4
 import pytest
 from sqlalchemy.orm import Session
 
-from app.services.locks import SourceKeyDTO, lock_command, lock_sources
+from app.common.commands.locks import lock_command, lock_sources
+from app.domain.dto.source_key_dto import SourceKeyDTO
 
 
 @pytest.mark.parametrize(
@@ -50,7 +51,7 @@ def test_source_identity_is_immutable_and_does_not_implicitly_trim() -> None:
 def test_lock_keys_are_stable_across_python_hash_seeds() -> None:
     """不同进程、不同集合迭代顺序仍得到相同的有符号64位锁键顺序。"""
     script = (
-        "import json; from app.services.locks import SourceKeyDTO,_source_keys; "
+        "import json; from app.common.commands.locks import SourceKeyDTO,_source_keys; "
         "print(json.dumps(_source_keys({SourceKeyDTO('receipt','行-1'),"
         "SourceKeyDTO('order','行-2'),SourceKeyDTO('receipt','行-1')})))"
     )

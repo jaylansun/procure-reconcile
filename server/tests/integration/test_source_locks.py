@@ -10,8 +10,9 @@ from sqlalchemy import event, text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.common.commands.locks import lock_command, lock_sources
+from app.domain.dto.source_key_dto import SourceKeyDTO
 from app.persistence.database import DatabaseManager
-from app.services.locks import SourceKeyDTO, lock_command, lock_sources
 
 pytestmark = pytest.mark.postgres
 

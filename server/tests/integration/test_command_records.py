@@ -13,13 +13,13 @@ from sqlalchemy import JSON, delete, func, inspect, select, text
 from sqlalchemy.exc import DBAPIError, IntegrityError, SAWarning
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.common.security.passwords import new_session_token
+from app.config.settings import Settings
+from app.entity.command_record_do import CommandRecordDO
 from app.persistence.database import DatabaseManager
-from app.persistence.models import CommandRecordDO
 from app.persistence.schema import expected_schema_heads
-from app.readiness import check_readiness
-from app.security.admin import initialize_administrator
-from app.security.passwords import new_session_token
-from app.settings import Settings
+from app.service.administrator_service import AdministratorService
+from app.service.readiness_service import ReadinessService
 
 pytestmark = pytest.mark.postgres
 
@@ -243,14 +243,14 @@ def test_missing_command_table_is_not_ready_even_with_correct_version_and_admin(
     """版本与管理员有效但命令表缺失时不能误报就绪，结束后恢复表名。"""
     engine = postgres_database.engine
     assert engine is not None
-    initialize_administrator(postgres_database, "readiness-admin", new_session_token())
+    AdministratorService.initialize(postgres_database, "readiness-admin", new_session_token())
     settings = Settings(
         _env_file=None,
         environment="test",
         instance_id="command-table-readiness-test",
         database_url=engine.url.render_as_string(hide_password=False),
     )
-    assert check_readiness(settings, postgres_database).ready is True
+    assert ReadinessService.check(settings, postgres_database).ready is True
     # 名称只由固定前缀和UUID生成，不插入外部提供的SQL标识符。
     temporary_table = f"command_records_{uuid4().hex}"
     with engine.begin() as connection:
@@ -258,7 +258,7 @@ def test_missing_command_table_is_not_ready_even_with_correct_version_and_admin(
             f'ALTER TABLE public.command_records RENAME TO "{temporary_table}"'
         )
     try:
-        status = check_readiness(settings, postgres_database)
+        status = ReadinessService.check(settings, postgres_database)
         assert status.ready is False
         assert status.reason == "schema_not_ready"
     finally:
@@ -266,7 +266,7 @@ def test_missing_command_table_is_not_ready_even_with_correct_version_and_admin(
             connection.exec_driver_sql(
                 f'ALTER TABLE public."{temporary_table}" RENAME TO command_records'
             )
-    assert check_readiness(settings, postgres_database).ready is True
+    assert ReadinessService.check(settings, postgres_database).ready is True
     with command_sessions() as session:
         assert session.scalar(select(func.count()).select_from(CommandRecordDO)) == 0
 

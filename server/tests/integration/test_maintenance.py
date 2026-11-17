@@ -8,13 +8,17 @@ from uuid import UUID, uuid4
 import pytest
 from sqlalchemy import func, select, update
 
-from app.errors import AppError
-from app.maintenance import MaintenanceGate
+from app.common.commands.command_context import CommandContext
+from app.common.commands.command_executor import CommandExecutor
+from app.common.errors import AppError
+from app.common.maintenance.maintenance_gate import MaintenanceGate
+from app.common.security.passwords import new_session_token
+from app.domain.dto.command_result_dto import CommandResultDTO
+from app.entity.administrator_do import AdministratorDO
+from app.entity.audit_event_do import AuditEventDO
+from app.entity.command_record_do import CommandRecordDO
 from app.persistence.database import DatabaseManager
-from app.persistence.models import AdministratorDO, AuditEventDO, CommandRecordDO
-from app.security.admin import initialize_administrator
-from app.security.passwords import new_session_token
-from app.services.command_executor import CommandContext, CommandExecutor, CommandResultDTO
+from app.service.administrator_service import AdministratorService
 
 pytestmark = pytest.mark.postgres
 
@@ -22,7 +26,7 @@ pytestmark = pytest.mark.postgres
 @pytest.fixture
 def guarded_executor(postgres_database: DatabaseManager, tmp_path: Path):
     """只使用受保护测试库和每个用例自己的维护目录。"""
-    initialize_administrator(postgres_database, "maintenance-admin", new_session_token())
+    AdministratorService.initialize(postgres_database, "maintenance-admin", new_session_token())
     gate = MaintenanceGate(tmp_path / "maintenance")
     return CommandExecutor(postgres_database, gate=gate), gate
 

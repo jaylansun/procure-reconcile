@@ -8,7 +8,8 @@ from uuid import UUID, uuid4
 import pytest
 from sqlalchemy.orm import Session
 
-from app.services.audit import AuditChangeDTO, append_audit
+from app.common.audit.audit import append_audit
+from app.domain.dto.audit_change_dto import AuditChangeDTO
 
 
 class AddOnlySession:

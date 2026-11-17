@@ -8,6 +8,7 @@
     "/health": {
       "get": {
         "summary": "Health",
+        "description": "返回进程存活状态。",
         "operationId": "health_health_get",
         "responses": {
           "200": {
@@ -30,6 +31,7 @@
     "/api/v1/system": {
       "get": {
         "summary": "System",
+        "description": "返回配置、数据库就绪与维护状态。",
         "operationId": "system_api_v1_system_get",
         "responses": {
           "200": {
@@ -45,9 +47,38 @@
         }
       }
     },
+    "/api/v1/workspace": {
+      "get": {
+        "summary": "Workspace",
+        "description": "返回已登录工作区的连接信息。",
+        "operationId": "workspace_api_v1_workspace_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "type": "object",
+                  "title": "Response Workspace Api V1 Workspace Get"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
     "/api/v1/auth/login": {
       "post": {
         "summary": "Login",
+        "description": "接收登录资料，调用认证服务并返回登录会话。",
         "operationId": "login_api_v1_auth_login_post",
         "requestBody": {
           "content": {
@@ -86,6 +117,7 @@
     "/api/v1/auth/session": {
       "get": {
         "summary": "Current Session",
+        "description": "返回已认证用户及当前登录会话的到期时间。",
         "operationId": "current_session_api_v1_auth_session_get",
         "responses": {
           "200": {
@@ -109,37 +141,11 @@
     "/api/v1/auth/logout": {
       "post": {
         "summary": "Logout",
+        "description": "撤销当前会话，返回空响应。",
         "operationId": "logout_api_v1_auth_logout_post",
         "responses": {
           "204": {
             "description": "Successful Response"
-          }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ]
-      }
-    },
-    "/api/v1/workspace": {
-      "get": {
-        "summary": "Workspace",
-        "operationId": "workspace_api_v1_workspace_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": {
-                    "type": "string"
-                  },
-                  "type": "object",
-                  "title": "Response Workspace Api V1 Workspace Get"
-                }
-              }
-            }
           }
         },
         "security": [
@@ -449,7 +455,7 @@
           "供应商"
         ],
         "summary": "Update Supplier Endpoint",
-        "description": "锁定供应商来源，交由业务函数检查版本并更新资料。",
+        "description": "锁定供应商来源，交由业务服务检查版本并更新资料。",
         "operationId": "update_supplier_endpoint_api_v1_suppliers__supplier_id__put",
         "security": [
           {
@@ -506,7 +512,7 @@
           "供应商"
         ],
         "summary": "Get Supplier Endpoint",
-        "description": "使用稳定ID读取供应商详情。",
+        "description": "使用稳定 ID 读取供应商详情。",
         "operationId": "get_supplier_endpoint_api_v1_suppliers__supplier_id__get",
         "security": [
           {
@@ -548,6 +554,220 @@
           }
         }
       }
+    },
+    "/api/v1/units": {
+      "post": {
+        "tags": [
+          "计量单位"
+        ],
+        "summary": "Create Unit Endpoint",
+        "description": "创建单位，通过命令编号安全重试同一次新增。",
+        "operationId": "create_unit_endpoint_api_v1_units_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateUnitDTO"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnitVO"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "计量单位"
+        ],
+        "summary": "List Units Endpoint",
+        "description": "查询当前分页，认证和数据库会话覆盖完整读取过程。",
+        "operationId": "list_units_endpoint_api_v1_units_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 20,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnitListVO"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/units/{unit_id}": {
+      "put": {
+        "tags": [
+          "计量单位"
+        ],
+        "summary": "Update Unit Endpoint",
+        "description": "锁定单位来源，交由业务服务检查版本并更新名称。",
+        "operationId": "update_unit_endpoint_api_v1_units__unit_id__put",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "unit_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Unit Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateUnitDTO"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnitVO"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "计量单位"
+        ],
+        "summary": "Get Unit Endpoint",
+        "description": "使用稳定 ID 读取单位详情。",
+        "operationId": "get_unit_endpoint_api_v1_units__unit_id__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "unit_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Unit Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnitVO"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -570,7 +790,27 @@
           "data"
         ],
         "title": "CreateSupplierDTO",
-        "description": "新增命令：包含命令编号和供应商资料。"
+        "description": "新增命令，包含命令编号和供应商资料。"
+      },
+      "CreateUnitDTO": {
+        "properties": {
+          "command_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Command Id"
+          },
+          "data": {
+            "$ref": "#/components/schemas/UnitDTO"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "command_id",
+          "data"
+        ],
+        "title": "CreateUnitDTO",
+        "description": "接收命令编号和待新增的单位资料。"
       },
       "FileMetadataVO": {
         "properties": {
@@ -860,6 +1100,91 @@
         "title": "SystemVO",
         "description": "系统状态展示对象，返回环境、实例及服务就绪状态。"
       },
+      "UnitDTO": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 50,
+            "minLength": 1,
+            "title": "Name"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "UnitDTO",
+        "description": "接收完整的单位资料，并校验名称"
+      },
+      "UnitListVO": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/UnitVO"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Offset"
+          },
+          "limit": {
+            "type": "integer",
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Limit"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "offset",
+          "limit"
+        ],
+        "title": "UnitListVO",
+        "description": "单位分页展示对象，返回当前页记录和分页参数。"
+      },
+      "UnitVO": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Version"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "version",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "UnitVO",
+        "description": "单位展示对象，返回稳定标识、名称、版本和时间。"
+      },
       "UpdateSupplierDTO": {
         "properties": {
           "command_id": {
@@ -890,7 +1215,39 @@
           "data"
         ],
         "title": "UpdateSupplierDTO",
-        "description": "修改命令：还须提供供应商ID和预期版本。"
+        "description": "修改命令，提供供应商 ID、预期版本和完整资料。"
+      },
+      "UpdateUnitDTO": {
+        "properties": {
+          "command_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Command Id"
+          },
+          "expected_version": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Expected Version"
+          },
+          "unit_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Unit Id"
+          },
+          "data": {
+            "$ref": "#/components/schemas/UnitDTO"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "command_id",
+          "expected_version",
+          "unit_id",
+          "data"
+        ],
+        "title": "UpdateUnitDTO",
+        "description": "接收单位 ID、预期版本和修改后的完整资料。"
       },
       "UserVO": {
         "properties": {

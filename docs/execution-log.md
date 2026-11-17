@@ -1,8 +1,8 @@
 # 执行日志
 
-当前源码进展（2026-11-13）：用户手写供应商业务已接入0004_suppliers迁移及新增、修改、详情、分页四个后端接口，独立测试PG完整511项通过。接续D09单位基础资料、物料与规格及换算，具体实现入口和联调步骤见backend-business-guide.md。
+当前源码进展（2026-11-17）为供应商与单位后端已接入，迁移头为0005_units。单位新增、修改、详情和分页接口与完整PG测试已通过，后端已按Controller/Service/Repository/Entity/Domain分层。当前本地全后端585项通过，接续D09的物料、规格、换算与客户端管理页面。
 
-当前部署概况（2026-11-03）：共享Jenkins中的独立采购任务最近构建#2为SUCCESS，源码69f446da943f9554e528efaf2cb0d558c4ea88c8。正式API、PG与HTTPS网关已运行，服务地址已更新为https://192.168.1.42:18443；管理员凭据按用户指定设置，本机及Jenkins独立部署凭据已同步。最新构建与配套备份记录以 http://127.0.0.1:8080/job/procure-reconcile/ 为准；下方早期条目保留当时状态。
+当前服务入口采用https://sunjialedeMacBook-Pro.local:18443，当前IP备用入口为https://192.168.1.100:18443。HTTPS网关监听全部IPv4接口，API使用回环18080，PG使用内部网络。Jenkins独立采购任务及发布记录入口为 http://127.0.0.1:8080/job/procure-reconcile/ ，实时源码SHA、构建结果、镜像和schema以该任务及procure_release_state中的current.json为准，配置维护另见current-configuration.json。下方历史条目保留各次实际结果。
 
 ## 2026-10-16：首个工程与认证基础版本
 
@@ -279,3 +279,32 @@ DO调整后的整套后端验证实际执行482项，481项通过，1项仍为�
 ## 2026-11-13：用户完成供应商Swagger联调并要求提交
 
 用户反馈当前供应商接口手动测试“没问题”，要求将全部现有修改推送GitHub并继续获取下一步手写代码。提交范围包含供应商业务、0004迁移、接口适配、QO/VO/DTO/DO命名衔接和配套测试、契约及文档。版本验证沿用本轮真实PG的511项全通过记录，并再次通过Ruff和差异检查。下一步手写单位基础资料，按DO、DTO及业务服务顺序推进。
+
+
+## 2026-11-16 后端按已确认分层重构
+
+用户确认采用 Controller、Service、Repository、Entity 和 Domain 分层。六张表的 DO 与 BaseDO 分别迁入 entity，每个 DTO、QO、VO 在 domain 对应子目录独立建文件，类名后缀与 snake_case 文件名对应。供应商、认证及原件访问拆分为 Controller、Service 类和 Repository 类，Repository 使用调用方的同一 Session。金额、数量、就绪检查和管理员初始化整理为带 Service 后缀的类。配置迁入 config，命令执行、事务上下文、指纹、锁、审计、存储、安全和维护能力迁入 common。
+
+新增 persistence/model_registry.py 显式注册全部 DO，数据库统一入口与 Alembic 使用同一注册集合。同步应用入口、命令行、部署内嵌 Python 和所有项目调用方，清理旧实现及失效缓存目录。AGENTS.md、后端 README、业务接入指南和实施规划同步实际目录及阅读顺序，规划中的后续模块继续保留建议状态。
+
+独立审查核对新旧六张表的 PostgreSQL DDL、索引和默认值，结果一致。手写指纹函数经 AST 比对一致。OpenAPI 路径、操作标识、状态码和请求响应字段比对一致，存档同步中文说明。新增十项架构回归检查覆盖独立文件、用途后缀、分层依赖、统一元数据及独立进程导入注册。
+
+使用锁定 uv 环境及独立 procure_test PostgreSQL 完整执行 521 项后端测试，全部通过，零失败、零错误、零跳过。CI 脚本另执行 12 项测试及 8 项子测试，全部通过。uv lock --check --offline、Ruff 和 git diff --check 通过。运行镜像构建成功，在一次性容器中实测 Uvicorn 启动、HTTP 存活接口、OpenAPI 和六表模型注册。验证结束后专用测试 PG 恢复停止状态。后端测试输出包含一条第三方 TestClient 对 httpx 的弃用提示。
+
+
+## 2026-11-16 创建单位业务手写空文件
+
+用户要求助手先创建文件，由用户填写内容。已创建 entity/unit_do.py、domain/dto/unit_dto.py、domain/dto/create_unit_dto.py、domain/dto/update_unit_dto.py、repository/unit_repository.py 和 service/unit_service.py，逐项验证均为零字节。当前处于用户手写阶段，单位模块的模型注册、数据库迁移、HTTP 接口和完整测试接入待内容完成后衔接。
+
+
+## 2026-11-17 修复单位模块配套、LAN访问与规划依赖
+
+用户在项目审计后要求修复。沿用用户已修正的单位Service、DTO、DO和Repository，补齐UnitListQO、UnitVO、UnitListVO、四个认证HTTP接口、0005_units迁移、模型注册、就绪检查和测试清理。修正两个导入区空行问题，OpenAPI加入单位接口。修改仍经统一命令执行器保存命令与审计，unit来源锁、预期版本、路径ID与DTO一致性均有回归。独立开发数据库经目标检查后显式迁移至0005_units。
+
+新增单位API和迁移测试，验证新增/修改/详情/列表、空页JSON数组、50字符边界、非法文本、认证退出、幂等与跨操作冲突、版本/审计、回滚、来源命名空间、并发和维护。单位迁移回退仅处理units，测试核对原六张表数据保留和数据库约束。全部integration先执行226项通过，随后完整后端585项全部通过，零失败、零错误、零跳过。部署控制器与CI编排另执行83项及8项子测试通过，前端类型检查及2项测试通过，Ruff、uv lock --check --offline和差异检查通过。测试环境仍有第三方TestClient对httpx的既有弃用提示。
+
+本机en0地址由192.168.1.42变为192.168.1.100后，旧绑定失效。先用既有根CA重签包含当前IP和本机主机名的服务器证书，受控更新网关与独立Jenkins配置，验证登录、工作台和已保存验收原件的SHA256。随后采用PROCURE_LAN_BIND=0.0.0.0及PROCURE_SERVER_HOST=sunjialedeMacBook-Pro.local，配置版本production-20261117-02。Mac系统curl默认信任下访问主机名和当前IP备用入口均返回alive，Docker内经host.docker.internal:18443使用同CA和SNI验证通过。其他设备的名称解析、CA信任和安装包仍待实机验收。
+
+发布配置新增可选PROCURE_SERVER_HOST，省略时兼容既有LAN_BIND。通配监听需提供有效证书主机名。候选发布探针在维护阶段同时验证内部gateway:443与宿主发布端口，端口映射或证书检查失败保持维护状态。部署使用既有受控任务生成备份、隔离恢复验证、单次迁移和认证冒烟，最终提交、构建和结果在Jenkins归档及发布状态卷保留。
+
+规划更新为1.5执行版，修复D09依赖订单页面而D10又前置D09的验收环，拆分D08计算与PG往返、D07首包与解析验收、C01基础镜像与原生依赖验收，并补充D04文件/事件的后续节点及D05/D09/D22/C07/C08子项。提前样例、API可用性与三平台最小构建检查单列。58项父任务继续按6完成、22部分/待验、30待开发记录，保留全部已确认业务与一期四格式/三平台范围。桌面Markdown从仓库规划同步，业务实现继续由用户手写，基础设施和测试由助手衔接。版本表保存修复前基线与实时核验入口，避免文档提交SHA自指。

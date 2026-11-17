@@ -4,14 +4,14 @@ import sys
 
 from sqlalchemy.exc import SQLAlchemyError
 
-from app.documents.service import FileService
-from app.documents.storage import FileStore, StorageError
-from app.errors import AppError
-from app.maintenance import MaintenanceGate
+from app.common.commands.command_executor import CommandExecutor
+from app.common.errors import AppError
+from app.common.maintenance.maintenance_gate import MaintenanceGate
+from app.common.storage.file_store import FileStore, StorageError
+from app.config.settings import Settings
 from app.persistence.database import DatabaseManager
-from app.security.admin import initialize_administrator
-from app.services.command_executor import CommandExecutor
-from app.settings import Settings
+from app.service.administrator_service import AdministratorService
+from app.service.file_service import FileService
 
 
 def _nonnegative_hours(value: str) -> int:
@@ -62,7 +62,7 @@ def main() -> int:
         if password != confirmation:
             raise ValueError("两次密码不一致")
         with gate.writer():
-            initialize_administrator(database, username, password)
+            AdministratorService.initialize(database, username, password)
     except ValueError as error:
         print(str(error), file=sys.stderr)
         return 1

@@ -10,14 +10,18 @@ from uuid import UUID, uuid4
 import pytest
 from sqlalchemy import event, func, select, update
 
-from app.documents.service import FileService
-from app.documents.storage import FileStore, StagedFileDTO, StorageError
-from app.errors import AppError
+from app.common.commands.command_context import CommandContext
+from app.common.commands.command_executor import CommandExecutor
+from app.common.errors import AppError
+from app.common.security.passwords import new_session_token
+from app.common.storage.file_store import FileStore, StorageError
+from app.domain.dto.staged_file_dto import StagedFileDTO
+from app.entity.audit_event_do import AuditEventDO
+from app.entity.command_record_do import CommandRecordDO
+from app.entity.stored_file_do import StoredFileDO
 from app.persistence.database import DatabaseManager
-from app.persistence.models import AuditEventDO, CommandRecordDO, StoredFileDO
-from app.security.admin import initialize_administrator
-from app.security.passwords import new_session_token
-from app.services.command_executor import CommandContext, CommandExecutor
+from app.service.administrator_service import AdministratorService
+from app.service.file_service import FileService
 
 pytestmark = pytest.mark.postgres
 
@@ -25,7 +29,7 @@ pytestmark = pytest.mark.postgres
 @pytest.fixture
 def file_service(postgres_database: DatabaseManager, tmp_path: Path) -> FileService:
     """仅使用显式指定的测试库与本次临时文件目录。"""
-    initialize_administrator(postgres_database, "files-admin", new_session_token())
+    AdministratorService.initialize(postgres_database, "files-admin", new_session_token())
     return FileService(
         postgres_database, FileStore(tmp_path / "files"), CommandExecutor(postgres_database)
     )
@@ -322,7 +326,7 @@ def test_cleanup_failure_preserves_original_error_and_safe_orphan(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     """补偿锁不可用时保留孤儿且不覆盖原异常，日志只含类型和安全码。"""
-    import app.documents.service as module
+    import app.service.file_service as module
 
     publish = file_service.store.publish
 

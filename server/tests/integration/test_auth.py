@@ -8,13 +8,14 @@ from fastapi.testclient import TestClient
 from sqlalchemy import func, select, text
 from sqlalchemy.exc import IntegrityError
 
+from app.common.security.login_rate_limiter import LoginRateLimiter
+from app.common.security.passwords import new_session_token, token_digest
+from app.config.settings import Settings
+from app.entity.administrator_do import AdministratorDO
+from app.entity.auth_session_do import AuthSessionDO
 from app.main import create_app
 from app.persistence import schema
-from app.persistence.models import AdministratorDO, AuthSessionDO
-from app.security.admin import initialize_administrator
-from app.security.passwords import new_session_token, token_digest
-from app.security.rate_limit import LoginRateLimiter
-from app.settings import Settings
+from app.service.administrator_service import AdministratorService
 
 pytestmark = pytest.mark.postgres
 
@@ -34,7 +35,7 @@ def api(postgres_database):
 @pytest.fixture(params=["042619", None], ids=["six-digit-password", "long-password"])
 def administrator(postgres_database, request):
     password = request.param if request.param is not None else new_session_token()
-    initialize_administrator(postgres_database, "administrator", password)
+    AdministratorService.initialize(postgres_database, "administrator", password)
     return password
 
 
@@ -50,10 +51,10 @@ def test_uninitialized_then_initialized_readiness_and_single_administrator(api, 
     assert api.get("/api/v1/system").json()["reason"] == "administrator_not_initialized"
     not_initialized = login(api, "irrelevant-test-input")
     assert not_initialized.status_code == 503
-    initialize_administrator(postgres_database, "administrator", new_session_token())
+    AdministratorService.initialize(postgres_database, "administrator", new_session_token())
     assert api.get("/api/v1/system").json()["ready"] is True
     with pytest.raises(ValueError, match="已初始化"):
-        initialize_administrator(postgres_database, "other", new_session_token())
+        AdministratorService.initialize(postgres_database, "other", new_session_token())
     with pytest.raises(IntegrityError), postgres_database.sessions.begin() as session:
         session.add(AdministratorDO(id=2, username="other", password_hash="not-a-real-account"))
 
@@ -164,7 +165,7 @@ def test_new_migration_head_requires_upgrade_before_readiness_and_admin_initiali
         assert schema.expected_schema_heads() == {"test_next"}
         assert api.get("/api/v1/system").json()["reason"] == "schema_not_ready"
         with pytest.raises(ValueError, match="迁移"):
-            initialize_administrator(postgres_database, "administrator", "042619")
+            AdministratorService.initialize(postgres_database, "administrator", "042619")
 
         migration = Config(str(config_path))
         migration.attributes["database_url"] = postgres_database.engine.url.render_as_string(
@@ -172,7 +173,7 @@ def test_new_migration_head_requires_upgrade_before_readiness_and_admin_initiali
         )
         command.upgrade(migration, "heads")
         assert api.get("/api/v1/system").json()["reason"] == "administrator_not_initialized"
-        initialize_administrator(postgres_database, "administrator", "042619")
+        AdministratorService.initialize(postgres_database, "administrator", "042619")
         assert api.get("/api/v1/system").json()["ready"] is True
 
         monkeypatch.setattr(schema, "ALEMBIC_CONFIG", tmp_path / "missing.ini")

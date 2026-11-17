@@ -9,15 +9,13 @@ from alembic import command
 from alembic.config import Config
 from sqlalchemy import func, inspect, select, text
 
+from app.entity.administrator_do import AdministratorDO
+from app.entity.audit_event_do import AuditEventDO
+from app.entity.auth_session_do import AuthSessionDO
+from app.entity.command_record_do import CommandRecordDO
+from app.entity.stored_file_do import StoredFileDO
+from app.entity.supplier_do import SupplierDO
 from app.persistence.database import DatabaseManager
-from app.persistence.models import (
-    AdministratorDO,
-    AuditEventDO,
-    AuthSessionDO,
-    CommandRecordDO,
-    StoredFileDO,
-    SupplierDO,
-)
 from app.persistence.schema import expected_schema_heads
 
 pytestmark = pytest.mark.postgres

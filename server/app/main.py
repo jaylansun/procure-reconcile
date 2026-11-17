@@ -8,18 +8,18 @@ from fastapi.exceptions import RequestValidationError
 from sqlalchemy.exc import SQLAlchemyError
 from starlette.exceptions import HTTPException
 
-from app.errors import (
+from app.common.commands.command_executor import CommandExecutor
+from app.common.errors import (
     AppError,
     app_error_handler,
     error_response,
     http_error_handler,
     validation_error_handler,
 )
-from app.maintenance import MaintenanceGate
+from app.common.maintenance.maintenance_gate import MaintenanceGate
+from app.common.security.login_rate_limiter import LoginRateLimiter
+from app.config.settings import Settings
 from app.persistence.database import DatabaseManager
-from app.security.rate_limit import LoginRateLimiter
-from app.services.command_executor import CommandExecutor
-from app.settings import Settings
 
 logger = logging.getLogger("procure.api")
 
@@ -76,15 +76,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         response.headers["X-Request-ID"] = request.state.request_id
         return response
 
-    from app.api import router
+    from app.controller.auth_controller import router as auth_router
+    from app.controller.file_controller import router as file_router
+    from app.controller.supplier_controller import router as supplier_router
+    from app.controller.system_controller import router as system_router
+    from app.controller.unit_controller import router as unit_router
 
-    application.include_router(router)
-    from app.documents.api import router as file_router
-
+    application.include_router(system_router)
+    application.include_router(auth_router)
     application.include_router(file_router)
-    from app.suppliers import router as supplier_router
-
     application.include_router(supplier_router)
+    application.include_router(unit_router)
     return application
 
 

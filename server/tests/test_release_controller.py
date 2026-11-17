@@ -307,7 +307,11 @@ def test_success_backs_up_verifies_restores_and_opens_last(tmp_path, capsys, ini
         if arguments[-1] == release.CANDIDATE_TLS_SCRIPT
     )
     tls_payload = json.loads(docker.inputs[tls_index])
-    assert tls_payload == {"server_hostname": "192.0.2.10", "ca_certificate": TEST_CA}
+    assert tls_payload == {
+        "server_hostname": "192.0.2.10",
+        "https_port": 18443,
+        "ca_certificate": TEST_CA,
+    }
     readiness = [arguments for arguments in docker.calls if "pg_isready" in arguments]
     assert readiness and all(
         "-h" in arguments and "127.0.0.1" in arguments for arguments in readiness
@@ -451,36 +455,123 @@ def test_candidate_tls_failure_never_opens_maintenance(tmp_path, capsys, failure
     assert TEST_CA not in capsys.readouterr().out + json.dumps(journal)
 
 
-def test_tls_probe_uses_gateway_socket_and_verified_lan_hostname(monkeypatch, capsys):
-    """执行实际探针脚本，验证TCP目标、默认信任校验、SNI与两条HTTPS请求。"""
+@pytest.mark.parametrize("hostname", ["192.0.2.10", "2001:db8::10", "procure-server.local"])
+def test_legacy_configuration_uses_lan_bind_as_certificate_hostname(hostname):
+    """旧部署配置继续使用原 LAN 地址校验证书。"""
+    configuration = release.ReleaseSettings.read(configuration_bytes(PROCURE_LAN_BIND=hostname))
+    assert configuration.server_hostname == hostname
+
+
+@pytest.mark.parametrize("binding", ["0.0.0.0", "::", "192.0.2.10"])
+def test_explicit_server_hostname_and_custom_port_are_passed_to_probe(tmp_path, binding):
+    """显式主机名与发布端口独立于网卡绑定，并进入候选 HTTPS 探针。"""
+    controller, _, docker = make_controller(tmp_path)
+    controller.configuration = release.ReleaseSettings.read(
+        configuration_bytes(
+            PROCURE_LAN_BIND=binding,
+            PROCURE_SERVER_HOST="procure-server.local",
+            PROCURE_HTTPS_PORT="19443",
+        )
+    )
+    assert controller.configuration.server_hostname == "procure-server.local"
+    controller.run()
+    tls_index = next(
+        index
+        for index, arguments in enumerate(docker.calls)
+        if arguments[-1] == release.CANDIDATE_TLS_SCRIPT
+    )
+    assert json.loads(docker.inputs[tls_index]) == {
+        "server_hostname": "procure-server.local",
+        "https_port": 19443,
+        "ca_certificate": TEST_CA,
+    }
+
+
+@pytest.mark.parametrize(
+    "hostname",
+    [
+        "",
+        '" "',
+        '" procure-server.local"',
+        '"procure-server.local "',
+        "https://procure-server.local",
+        "procure-server.local/path",
+        "procure-server.local:18443",
+        "procure-server.local?query",
+        "procure-server.local#fragment",
+        "admin@procure-server.local",
+        "*.local",
+        "*",
+        "0.0.0.0",
+        "::",
+        "[::]",
+        "[2001:db8::10]:18443",
+        "procure_server.local",
+        "-server.local",
+        "server-.local",
+        "x" * 64 + ".local",
+        "x." * 127 + "local",
+    ],
+)
+def test_invalid_certificate_hostname_is_rejected(hostname):
+    """证书目标只接受纯 IP 或主机名，拒绝空白、URL 和监听通配地址。"""
+    with pytest.raises(release.ReleaseError, match="invalid_configuration"):
+        release.ReleaseSettings.read(configuration_bytes(PROCURE_SERVER_HOST=hostname))
+
+
+@pytest.mark.parametrize("binding", ["0.0.0.0", "::"])
+def test_wildcard_binding_requires_explicit_certificate_hostname(binding):
+    """所有网卡监听需要独立配置可验证的证书主机名。"""
+    with pytest.raises(release.ReleaseError, match="invalid_configuration"):
+        release.ReleaseSettings.read(configuration_bytes(PROCURE_LAN_BIND=binding))
+
+
+@pytest.fixture
+def tls_probe_boundary(monkeypatch):
+    """替换网络与 TLS 边界，实际执行同一份发布探针代码。"""
     import http.client
     import socket
     import ssl
 
-    hostname = "192.0.2.10"
-    raw = Mock()
+    state = SimpleNamespace(
+        hostname="192.0.2.10",
+        https_port=18443,
+        fail_host_mapping=False,
+        raw=Mock(),
+        requests=[],
+    )
     context = Mock(check_hostname=True, verify_mode=ssl.CERT_REQUIRED)
 
     def wrap_socket(stream, *, server_hostname):
         assert context.check_hostname is True
         assert context.verify_mode == ssl.CERT_REQUIRED
-        assert server_hostname == hostname
-        assert stream is raw
+        assert server_hostname == state.hostname
+        assert stream is state.raw
         return stream
+
+    def connect_socket(target, *, timeout):
+        assert timeout == 10
+        if state.fail_host_mapping and target[0] == "host.docker.internal":
+            raise ConnectionRefusedError("synthetic private host mapping error")
+        return state.raw
 
     context.wrap_socket.side_effect = wrap_socket
     create_context = Mock(return_value=context)
-    connect = Mock(return_value=raw)
-    requests = []
+    connect = Mock(side_effect=connect_socket)
 
     class Connection:
         def __init__(self, host, port, *, timeout):
-            assert (host, port, timeout) == ("gateway", 443, 10)
+            assert timeout == 10
+            assert (host, port) in {
+                ("gateway", 443),
+                ("host.docker.internal", state.https_port),
+            }
+            self.host, self.port = host, port
 
         def request(self, method, path, *, headers):
-            assert method == "GET" and headers["Host"] == hostname
+            assert method == "GET" and headers["Host"] == state.hostname
             self.path = path
-            requests.append(path)
+            state.requests.append((self.host, self.port, path))
 
         def getresponse(self):
             body = (
@@ -496,25 +587,79 @@ def test_tls_probe_uses_gateway_socket_and_verified_lan_hostname(monkeypatch, ca
     monkeypatch.setattr(ssl, "create_default_context", create_context)
     monkeypatch.setattr(socket, "create_connection", connect)
     monkeypatch.setattr(http.client, "HTTPConnection", Connection)
-    monkeypatch.setattr(
-        sys,
-        "stdin",
-        io.StringIO(
-            json.dumps(
-                {
-                    "server_hostname": hostname,
-                    "ca_certificate": TEST_CA,
-                }
-            )
-        ),
+
+    def execute(payload):
+        monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps(payload)))
+        exec(release.CANDIDATE_TLS_SCRIPT, {})
+
+    state.context = context
+    state.create_context = create_context
+    state.connect = connect
+    state.execute = execute
+    return state
+
+
+@pytest.mark.parametrize(
+    ("hostname", "port"), [("192.0.2.10", 18443), ("procure-server.local", 19443)]
+)
+def test_tls_probe_checks_gateway_and_host_port_with_same_ca_and_sni(
+    tls_probe_boundary, capsys, hostname, port
+):
+    """内部网关与宿主映射均校验 CA、SNI、健康和维护状态。"""
+    boundary = tls_probe_boundary
+    boundary.hostname = hostname
+    boundary.https_port = port
+    boundary.execute(
+        {"server_hostname": hostname, "https_port": port, "ca_certificate": TEST_CA}
     )
-    exec(release.CANDIDATE_TLS_SCRIPT, {})
-    create_context.assert_called_once_with(cadata=TEST_CA)
-    assert context.wrap_socket.call_count == 2
-    assert connect.call_count == 2
-    connect.assert_called_with(("gateway", 443), timeout=10)
-    assert requests == ["/health", "/api/v1/system"]
+    boundary.create_context.assert_called_once_with(cadata=TEST_CA)
+    assert boundary.context.wrap_socket.call_count == 4
+    assert [call.args[0] for call in boundary.connect.call_args_list] == [
+        ("gateway", 443),
+        ("gateway", 443),
+        ("host.docker.internal", port),
+        ("host.docker.internal", port),
+    ]
+    assert boundary.requests == [
+        ("gateway", 443, "/health"),
+        ("gateway", 443, "/api/v1/system"),
+        ("host.docker.internal", port, "/health"),
+        ("host.docker.internal", port, "/api/v1/system"),
+    ]
+    assert boundary.raw.close.call_count == 4
     assert json.loads(capsys.readouterr().out) == {"ok": True}
+
+
+def test_host_port_mapping_failure_keeps_maintenance_and_safe_diagnostics(
+    tmp_path, monkeypatch, capsys, tls_probe_boundary
+):
+    """内部网关正常而宿主发布端口不可达时，实际探针阻止发布开放。"""
+    controller, gate, _ = make_controller(tmp_path)
+    original = controller.api_script
+    boundary = tls_probe_boundary
+    boundary.fail_host_mapping = True
+
+    def api_script(script, *, input_data=None):
+        if script == release.CANDIDATE_TLS_SCRIPT:
+            boundary.execute(json.loads(input_data))
+            return {"ok": True}
+        return original(script, input_data=input_data)
+
+    monkeypatch.setattr(controller, "api_script", api_script)
+    with pytest.raises(release.ReleaseError, match="candidate_tls_failed"):
+        controller.run()
+    assert boundary.requests == [
+        ("gateway", 443, "/health"),
+        ("gateway", 443, "/api/v1/system"),
+    ]
+    assert boundary.connect.call_args.args[0] == ("host.docker.internal", 18443)
+    assert gate.active and False not in gate.events
+    journal = json.loads((controller.state / "current.json").read_text())
+    assert journal["phase"] == "candidate"
+    assert journal["error_code"] == "candidate_tls_failed"
+    output = capsys.readouterr().out + json.dumps(journal)
+    assert "synthetic private host mapping error" not in output
+    assert TEST_CA not in output
 
 
 @pytest.mark.parametrize(

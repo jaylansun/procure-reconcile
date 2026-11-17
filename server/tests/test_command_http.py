@@ -7,14 +7,10 @@ from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
-from app.services.command_executor import CommandResultDTO
-from app.services.http import (
-    CommandDTO,
-    CommandExecutorDep,
-    VersionedCommandDTO,
-    command_response,
-    get_command_executor,
-)
+from app.common.commands.http import CommandExecutorDep, command_response, get_command_executor
+from app.domain.dto.command_dto import CommandDTO
+from app.domain.dto.command_result_dto import CommandResultDTO
+from app.domain.dto.versioned_command_dto import VersionedCommandDTO
 
 
 class ExampleDTO(VersionedCommandDTO):

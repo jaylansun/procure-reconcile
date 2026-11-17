@@ -8,11 +8,13 @@ from fastapi.testclient import TestClient
 from pydantic import SecretStr
 from sqlalchemy import func, select
 
+from app.common.security.passwords import new_session_token
+from app.config.settings import Settings
+from app.entity.auth_session_do import AuthSessionDO
+from app.entity.command_record_do import CommandRecordDO
+from app.entity.stored_file_do import StoredFileDO
 from app.main import create_app
-from app.persistence.models import AuthSessionDO, CommandRecordDO, StoredFileDO
-from app.security.admin import initialize_administrator
-from app.security.passwords import new_session_token
-from app.settings import Settings
+from app.service.administrator_service import AdministratorService
 
 pytestmark = pytest.mark.postgres
 
@@ -20,7 +22,7 @@ pytestmark = pytest.mark.postgres
 def test_maintenance_blocks_http_writers_without_partial_files(postgres_database, tmp_path):
     """维护不接受新会话、退出或上传，已有数据库事实和原件保持完整。"""
     password = new_session_token()
-    initialize_administrator(postgres_database, "maintenance-http", password)
+    AdministratorService.initialize(postgres_database, "maintenance-http", password)
     settings = Settings(
         _env_file=None,
         environment="test",

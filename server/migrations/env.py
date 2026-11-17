@@ -1,11 +1,11 @@
 from alembic import context
 from sqlalchemy import create_engine, pool
 
+from app.config.settings import Settings
 from app.persistence.database import normalize_database_url
-from app.persistence.models import BaseDO
-from app.settings import Settings
+from app.persistence.model_registry import metadata
 
-target_metadata = BaseDO.metadata
+target_metadata = metadata
 
 
 def database_url() -> str:

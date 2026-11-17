@@ -10,13 +10,15 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 
-from app.documents.storage import FileStore
+from app.common.security.passwords import new_session_token
+from app.common.storage.file_store import FileStore
+from app.config.settings import Settings
+from app.entity.audit_event_do import AuditEventDO
+from app.entity.command_record_do import CommandRecordDO
+from app.entity.stored_file_do import StoredFileDO
 from app.main import create_app
 from app.persistence.database import DatabaseManager
-from app.persistence.models import AuditEventDO, CommandRecordDO, StoredFileDO
-from app.security.admin import initialize_administrator
-from app.security.passwords import new_session_token
-from app.settings import Settings
+from app.service.administrator_service import AdministratorService
 
 pytestmark = pytest.mark.postgres
 _LIMIT = 1024
@@ -26,7 +28,7 @@ _LIMIT = 1024
 def file_api(postgres_database: DatabaseManager, tmp_path: Path) -> Iterator[TestClient]:
     """本次API使用隔离数据库、附件目录和临时管理员口令。"""
     password = new_session_token()
-    initialize_administrator(postgres_database, "file-admin", password)
+    AdministratorService.initialize(postgres_database, "file-admin", password)
     configured = Settings(
         _env_file=None,
         environment="test",

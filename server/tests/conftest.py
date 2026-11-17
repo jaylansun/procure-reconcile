@@ -8,15 +8,14 @@ from alembic.config import Config
 from sqlalchemy import delete
 from sqlalchemy.engine import make_url
 
+from app.entity.administrator_do import AdministratorDO
+from app.entity.audit_event_do import AuditEventDO
+from app.entity.auth_session_do import AuthSessionDO
+from app.entity.command_record_do import CommandRecordDO
+from app.entity.stored_file_do import StoredFileDO
+from app.entity.supplier_do import SupplierDO
+from app.entity.unit_do import UnitDO
 from app.persistence.database import DatabaseManager, normalize_database_url
-from app.persistence.models import (
-    AdministratorDO,
-    AuditEventDO,
-    AuthSessionDO,
-    CommandRecordDO,
-    StoredFileDO,
-    SupplierDO,
-)
 
 SERVER_ROOT = Path(__file__).resolve().parents[1]
 
@@ -40,6 +39,7 @@ def postgres_database():
     command.upgrade(migration, "head")
     database = DatabaseManager(supplied)
     with database.sessions.begin() as session:
+        session.execute(delete(UnitDO))
         session.execute(delete(SupplierDO))
         session.execute(delete(AuditEventDO))
         session.execute(delete(CommandRecordDO))
@@ -50,6 +50,7 @@ def postgres_database():
         yield database
     finally:
         with database.sessions.begin() as session:
+            session.execute(delete(UnitDO))
             session.execute(delete(SupplierDO))
             session.execute(delete(AuditEventDO))
             session.execute(delete(CommandRecordDO))

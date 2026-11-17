@@ -5,12 +5,21 @@
 ## 操作入口
 
 - Jenkins：`http://127.0.0.1:8080/job/procure-reconcile/`。
-- 正式API：`https://192.168.1.42:18443`，对应当前Mac的局域网地址。
+- 正式API使用`https://sunjialedeMacBook-Pro.local:18443`。
+- 当前IP备用入口为`https://192.168.1.100:18443`，地址以实际网卡状态为准。
 - 本机诊断API：`http://127.0.0.1:18080`。
 - 管理员资料：本机忽略提交的`.local/production-admin.txt`，正式账号由用户指定，密码仅保存在本机私有记录及独立部署凭据中，不作为源码中的默认密码。
 - 独立部署配置：本机`.local/deploy.env`及Jenkins Secret file `procure-deploy-env`。首次初始化和认证冒烟需要独立bootstrap字段，已有管理员不会被覆盖；修改密码后需同步该凭据供发布验证。
 
 客户端使用HTTPS地址。在其他Mac/Windows设备上需要信任`.local/tls/ca.crt`所表示的本项目根证书；只分发这个公开证书，不分发`ca.key`或`server.key`。桌面网络层采用系统根证书，信任导入后重启桌面客户端再连接。2026-11-03经用户明确授权，已在当前Mac用户的登录钥匙串导入根CA并配置SSL信任；系统证书校验和无需指定CA的HTTPS访问均通过。其他设备仍需分别安装信任。2026-11-03已将绑定更新为192.168.1.42，并沿用原根CA重签服务器证书；已信任原CA的设备无需重新导入证书，在桌面端设置中更新服务地址即可。地址变化后需重新签发匹配SAN的服务证书并更新配置，不能关闭证书验证。
+
+## 稳定访问与端口探针
+
+2026年11月17日按当前Mac地址修复服务器证书和网关入口。`PROCURE_LAN_BIND=0.0.0.0`表示HTTPS网关监听所有IPv4接口，`PROCURE_SERVER_HOST=sunjialedeMacBook-Pro.local`用于客户端连接和TLS主机名校验。服务器证书同时包含当前IP和本机主机名。API发布到本机回环18080，PostgreSQL使用内部网络。
+
+`PROCURE_SERVER_HOST`为可选项，旧配置省略时使用`PROCURE_LAN_BIND`校验证书。采用通配监听地址时，需要显式填写可验证的服务主机名。该变量填写纯主机名或IP，客户端连接地址另包含`https://`和18443端口。
+
+候选阶段使用同一根CA和服务主机名，分别验证容器内部`gateway:443`与`host.docker.internal:18443`的TLS、存活和维护状态，宿主端口连接失败会中止发布并保留维护状态。其他Mac和Windows设备需要分别验证主机名解析及CA信任，解析未就绪时可使用当前IP备用入口。
 
 ## 每次构建
 

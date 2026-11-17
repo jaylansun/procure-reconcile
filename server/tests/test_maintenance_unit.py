@@ -11,8 +11,8 @@ from pathlib import Path
 
 import pytest
 
-from app.errors import AppError
-from app.maintenance.gate import MaintenanceGate
+from app.common.errors import AppError
+from app.common.maintenance.maintenance_gate import MaintenanceGate
 
 
 def _assert_maintenance(error: pytest.ExceptionInfo[AppError]) -> None:
@@ -313,7 +313,7 @@ def test_other_process_writer_is_drained_and_process_exit_releases_lock(
     # 管道协调不依赖跨进程条件锁，强制退出子进程也不会遗留IPC信号量死锁。
     source = (
         "import sys\nfrom pathlib import Path\n"
-        "from app.maintenance import MaintenanceGate\n"
+        "from app.common.maintenance.maintenance_gate import MaintenanceGate\n"
         "with MaintenanceGate(Path(sys.argv[1])).writer():\n"
         "    print('entered', flush=True)\n"
         "    sys.stdin.readline()\n"

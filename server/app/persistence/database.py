@@ -2,6 +2,9 @@ from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
+# 统一入口显式加载全部 DO，独立服务和 CLI 也能解析完整外键元数据。
+from app.persistence import model_registry as model_registry
+
 
 def normalize_database_url(url: str) -> str:
     if url.startswith("postgresql+psycopg://"):

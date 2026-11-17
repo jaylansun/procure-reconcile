@@ -24,6 +24,7 @@ import unicodedata
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from ipaddress import ip_address
 from pathlib import Path
 from typing import BinaryIO
 from urllib.parse import unquote, urlsplit
@@ -153,6 +154,20 @@ class ReleaseSettings:
         port = values["PROCURE_HTTPS_PORT"]
         if not port.isascii() or not port.isdecimal() or not 1024 <= int(port) <= 65535:
             raise ReleaseError("invalid_configuration")
+        hostname = values.get("PROCURE_SERVER_HOST", values["PROCURE_LAN_BIND"])
+        if not hostname or hostname != hostname.strip() or len(hostname) > 253:
+            raise ReleaseError("invalid_configuration")
+        try:
+            address = ip_address(hostname)
+        except ValueError:
+            if not all(
+                re.fullmatch(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?", label)
+                for label in hostname.split(".")
+            ):
+                raise ReleaseError("invalid_configuration") from None
+        else:
+            if address.is_unspecified:
+                raise ReleaseError("invalid_configuration")
         config_version = values.get("PROCURE_CONFIG_VERSION", "unversioned")
         if (
             not config_version.strip()
@@ -165,6 +180,11 @@ class ReleaseSettings:
         except UnicodeError:
             raise ReleaseError("invalid_configuration_version") from None
         return cls(values)
+
+    @property
+    def server_hostname(self) -> str:
+        """返回证书校验主机名，兼容仅配置 LAN 绑定地址的既有环境。"""
+        return self.values.get("PROCURE_SERVER_HOST", self.values["PROCURE_LAN_BIND"])
 
     def compose_values(self, image_tag: str) -> dict[str, str]:
         return {
@@ -320,10 +340,10 @@ def verify_backup(directory: Path, manifest: dict) -> None:
 BOOTSTRAP_SCRIPT = r"""
 import json, sys
 from app.persistence.database import DatabaseManager
-from app.persistence.models import AdministratorDO
-from app.security.admin import initialize_administrator
-from app.security.passwords import verify_password
-from app.settings import Settings
+from app.entity.administrator_do import AdministratorDO
+from app.service.administrator_service import AdministratorService
+from app.common.security.passwords import verify_password
+from app.config.settings import Settings
 data = json.load(sys.stdin)
 settings = Settings()
 database = DatabaseManager(settings.database_url.get_secret_value())
@@ -335,7 +355,7 @@ try:
             if existing.username != data['username'] or not matches:
                 raise RuntimeError('existing administrator differs')
     if existing is None:
-        initialize_administrator(database, data['username'], data['password'])
+        AdministratorService.initialize(database, data['username'], data['password'])
     print(json.dumps({'ok': True}))
 finally:
     database.close()
@@ -344,12 +364,12 @@ finally:
 CANDIDATE_SCRIPT = r"""
 import json, secrets
 from pathlib import Path
-from app.documents.storage import FileStore
-from app.maintenance.gate import MaintenanceGate
+from app.common.storage.file_store import FileStore
+from app.common.maintenance.maintenance_gate import MaintenanceGate
 from app.persistence.database import DatabaseManager
 from app.persistence.schema import expected_schema_heads
-from app.readiness import check_readiness
-from app.settings import Settings
+from app.service.readiness_service import ReadinessService
+from app.config.settings import Settings
 settings = Settings()
 database = DatabaseManager(settings.database_url.get_secret_value())
 staged = None
@@ -358,7 +378,7 @@ store = FileStore(settings.files_dir, max_bytes=settings.max_file_bytes)
 try:
     if not MaintenanceGate(Path('/app/data/maintenance')).is_maintenance():
         raise RuntimeError('maintenance missing')
-    if not check_readiness(settings, database).ready:
+    if not ReadinessService.check(settings, database).ready:
         raise RuntimeError('underlying readiness failed')
     content = secrets.token_bytes(min(settings.max_file_bytes, 32))
     staged = store.stage([content])
@@ -392,32 +412,33 @@ import http.client, json, socket, ssl, sys
 configuration = json.load(sys.stdin)
 hostname = configuration['server_hostname']
 context = ssl.create_default_context(cadata=configuration['ca_certificate'])
-for path in ('/health', '/api/v1/system'):
-    connection = http.client.HTTPConnection('gateway', 443, timeout=10)
-    raw = socket.create_connection(('gateway', 443), timeout=10)
-    try:
-        # TCP目标是内部服务名，证书验证始终使用真实LAN地址及受信任CA。
-        connection.sock = context.wrap_socket(raw, server_hostname=hostname)
-        connection.request('GET', path, headers={'Host': hostname, 'Connection': 'close'})
-        response = connection.getresponse()
-        if response.status != 200:
-            raise RuntimeError('TLS endpoint status failed')
-        document = json.loads(response.read())
-        if path == '/health' and document.get('status') != 'alive':
-            raise RuntimeError('TLS liveness failed')
-        if path == '/api/v1/system' and (
-            document.get('ready') is not False or document.get('reason') != 'maintenance'
-        ):
-            raise RuntimeError('TLS maintenance readiness failed')
-    finally:
-        connection.close()
-        raw.close()
+for target in (('gateway', 443), ('host.docker.internal', configuration['https_port'])):
+    for path in ('/health', '/api/v1/system'):
+        connection = http.client.HTTPConnection(*target, timeout=10)
+        raw = socket.create_connection(target, timeout=10)
+        try:
+            # 内部网关与宿主发布端口都使用同一证书主机名和受信任 CA 校验。
+            connection.sock = context.wrap_socket(raw, server_hostname=hostname)
+            connection.request('GET', path, headers={'Host': hostname, 'Connection': 'close'})
+            response = connection.getresponse()
+            if response.status != 200:
+                raise RuntimeError('TLS endpoint status failed')
+            document = json.loads(response.read())
+            if path == '/health' and document.get('status') != 'alive':
+                raise RuntimeError('TLS liveness failed')
+            if path == '/api/v1/system' and (
+                document.get('ready') is not False or document.get('reason') != 'maintenance'
+            ):
+                raise RuntimeError('TLS maintenance readiness failed')
+        finally:
+            connection.close()
+            raw.close()
 print(json.dumps({'ok': True}))
 """
 
 AUTH_SMOKE_SCRIPT = r"""
 import json, sys, urllib.request
-from app.settings import Settings
+from app.config.settings import Settings
 settings = Settings()
 credentials = json.load(sys.stdin)
 base = 'http://api:8000'
@@ -771,7 +792,8 @@ class ReleaseController:
             ssl.create_default_context(cadata=ca_certificate)
             payload = json.dumps(
                 {
-                    "server_hostname": self.configuration.values["PROCURE_LAN_BIND"],
+                    "server_hostname": self.configuration.server_hostname,
+                    "https_port": int(self.configuration.values["PROCURE_HTTPS_PORT"]),
                     "ca_certificate": ca_certificate,
                 }
             ).encode("utf-8")
@@ -810,7 +832,7 @@ class ReleaseController:
                     str(self.root / "deploy/compose.lan.yml"),
                 ]
                 if self.gate is None:
-                    from app.maintenance.gate import MaintenanceGate
+                    from app.common.maintenance.maintenance_gate import MaintenanceGate
 
                     self.gate = MaintenanceGate(self.data / "maintenance")
                 try:

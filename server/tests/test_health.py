@@ -2,8 +2,8 @@ import pytest
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
+from app.config.settings import Settings
 from app.main import create_app
-from app.settings import Settings
 
 
 def test_liveness_does_not_require_database_or_administrator():

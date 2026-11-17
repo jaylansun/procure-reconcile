@@ -7,9 +7,12 @@ from sqlalchemy import event, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.common.audit.audit import append_audit
+from app.domain.dto.audit_change_dto import AuditChangeDTO
+from app.entity.administrator_do import AdministratorDO
+from app.entity.audit_event_do import AuditEventDO
+from app.entity.command_record_do import CommandRecordDO
 from app.persistence.database import DatabaseManager
-from app.persistence.models import AdministratorDO, AuditEventDO, CommandRecordDO
-from app.services.audit import AuditChangeDTO, append_audit
 
 pytestmark = pytest.mark.postgres
 

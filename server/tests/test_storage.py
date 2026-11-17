@@ -12,7 +12,8 @@ from pathlib import Path
 
 import pytest
 
-from app.documents.storage import FileStore, FileTooLargeError, StagedFileDTO, StorageError
+from app.common.storage.file_store import FileStore, FileTooLargeError, StorageError
+from app.domain.dto.staged_file_dto import StagedFileDTO
 
 
 @pytest.fixture

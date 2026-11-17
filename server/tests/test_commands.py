@@ -12,7 +12,7 @@ from typing import cast
 
 import pytest
 
-from app.services.commands import command_fingerprint
+from app.common.commands.fingerprint import command_fingerprint
 
 
 @pytest.fixture
@@ -218,7 +218,7 @@ def test_fingerprint_is_stable_across_processes_and_hash_seeds() -> None:
     }
     expected = command_fingerprint("收货.登记", payload)
     program = """
-from app.services.commands import command_fingerprint
+from app.common.commands.fingerprint import command_fingerprint
 values = {"supplier": "供方甲", "quantity": "1.250000", "labels": [True, None, 3]}
 payload = {key: values[key] for key in set(values)}
 print(command_fingerprint("收货.登记", payload))

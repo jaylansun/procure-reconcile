@@ -3,9 +3,9 @@
 import json
 from pathlib import Path
 
+from app.config.settings import Settings
 from app.main import create_app
-from app.persistence.models import BaseDO
-from app.settings import Settings
+from app.persistence.model_registry import BaseDO
 
 
 def test_api_models_use_data_role_suffixes():

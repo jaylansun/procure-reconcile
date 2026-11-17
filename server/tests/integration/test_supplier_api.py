@@ -12,15 +12,18 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import func, select, update
 
-from app.errors import AppError
+from app.common.commands.command_context import CommandContext
+from app.common.commands.locks import lock_sources
+from app.common.errors import AppError
+from app.common.security.passwords import new_session_token
+from app.config.settings import Settings
+from app.domain.dto.source_key_dto import SourceKeyDTO
+from app.entity.audit_event_do import AuditEventDO
+from app.entity.command_record_do import CommandRecordDO
+from app.entity.supplier_do import SupplierDO
 from app.main import create_app
 from app.persistence.database import DatabaseManager
-from app.persistence.models import AuditEventDO, CommandRecordDO, SupplierDO
-from app.security.admin import initialize_administrator
-from app.security.passwords import new_session_token
-from app.services.command_executor import CommandContext
-from app.services.locks import SourceKeyDTO, lock_sources
-from app.settings import Settings
+from app.service.administrator_service import AdministratorService
 
 pytestmark = pytest.mark.postgres
 _BASE = "/api/v1/suppliers"
@@ -30,7 +33,7 @@ _BASE = "/api/v1/suppliers"
 def supplier_api(postgres_database: DatabaseManager, tmp_path: Path) -> Iterator[TestClient]:
     """每次使用专用数据库、管理员和临时维护目录发起真实认证请求。"""
     password = new_session_token()
-    initialize_administrator(postgres_database, "supplier-test-admin", password)
+    AdministratorService.initialize(postgres_database, "supplier-test-admin", password)
     settings = Settings(
         _env_file=None,
         environment="test",
